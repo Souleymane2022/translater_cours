@@ -6,7 +6,7 @@
   const SpeechRecognition = self.SpeechRecognition || self.webkitSpeechRecognition;
 
   const SETTINGS_KEY = 'traducteur-cours-settings';
-  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'speak', 'showOriginal', 'fontSize'];
+  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'liveModel', 'speak', 'showOriginal', 'fontSize'];
 
   // Phrases que Whisper « invente » souvent sur du silence ou de la musique.
   const WHISPER_HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|bye\.?|\.+|subtitles by .*|please subscribe.*)$/i;
@@ -24,6 +24,7 @@
     }
     if (!$('apiBase').value) $('apiBase').value = 'https://api.openai.com/v1';
     if (!$('apiModel').value) $('apiModel').value = 'gpt-4o-mini-transcribe';
+    if (!$('liveModel').value) $('liveModel').value = 'gemini-3.5-live-translate-preview';
     if (!$('geminiModel').value || $('geminiModel').value === 'gemini-3.5-flash-lite') $('geminiModel').value = 'gemini-3.1-flash-lite';
   }
 
@@ -44,8 +45,9 @@
       pipWindow.document.body.classList.toggle('hide-original', !$('showOriginal').checked);
     }
     $('whisperSettings').open = $('engine').value === 'whisper';
-    $('geminiSettings').open = $('engine').value === 'gemini';
-    $('translator').disabled = $('engine').value === 'gemini';
+    const usesGemini = ['gemini', 'live'].includes($('engine').value);
+    $('geminiSettings').open = usesGemini;
+    $('translator').disabled = usesGemini;
     updateHint();
   }
 
@@ -69,7 +71,11 @@
       }
     }
     if (engine === 'browser' && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
-      hints.push('📱 Sur téléphone, la reconnaissance du navigateur est souvent peu fiable : le moteur Gemini est bien plus précis.');
+      hints.push('📱 Sur téléphone, la reconnaissance du navigateur est souvent peu fiable : le moteur Gemini Live est bien plus précis.');
+    }
+    if (engine === 'live') {
+      hints.push('⚡ Traduction simultanée : le texte français s\'écrit pendant que l\'orateur parle. '
+        + 'Cochez « Lire la traduction à voix haute » pour entendre une voix d\'interprète en français.');
     }
     if (engine === 'gemini') {
       hints.push('Gemini écoute par phrases : la traduction arrive 2 à 4 secondes après chaque pause de l\'orateur.');
@@ -204,7 +210,7 @@
     }, 700);
   }
 
-  function onFinal(text, translation) {
+  function onFinal(text, translation, { spoken = false } = {}) {
     text = text.trim();
     if (!text) return;
     latestInterim = '';
@@ -218,7 +224,7 @@
         item.setTranslation(tr);
         lastFinal = { original: text, translation: tr };
         if (!latestInterim) showLive(tr, text, false);
-        speak(tr);
+        if (!spoken) speak(tr);
       } catch (err) {
         item.setError(`traduction impossible (${err.message})`);
       }
@@ -570,6 +576,240 @@
     }
   }
 
+  // ---------- Moteur 4 : Gemini Live — traduction simultanée en continu ----------
+
+  const LIVE_INPUT_RATE = 16000;
+  const LIVE_OUTPUT_RATE = 24000;
+
+  // Rééchantillonne le flux du micro vers 16 kHz, en gardant l'état d'un bloc à l'autre.
+  class Resampler {
+    constructor(inputRate, outputRate) {
+      this.step = inputRate / outputRate;
+      this.pos = 0;
+    }
+
+    push(input) {
+      const out = new Int16Array(Math.ceil((input.length - this.pos) / this.step));
+      let n = 0;
+      for (; this.pos < input.length; this.pos += this.step) {
+        const i = Math.floor(this.pos);
+        const frac = this.pos - i;
+        const a = input[i];
+        const b = i + 1 < input.length ? input[i + 1] : input[i];
+        const v = Math.max(-1, Math.min(1, a + (b - a) * frac));
+        out[n++] = v < 0 ? v * 0x8000 : v * 0x7fff;
+      }
+      this.pos -= input.length;
+      return out.subarray(0, n);
+    }
+  }
+
+  function bytesToBase64(bytes) {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+
+  class GeminiLiveEngine {
+    constructor({ stream, apiKey, model, targetLang, playCtx }, handlers) {
+      this.stream = new MediaStream(stream.getAudioTracks());
+      this.apiKey = apiKey;
+      this.model = model;
+      this.targetLang = targetLang;
+      // Contexte de lecture créé au moment du clic (sinon Android bloque le son).
+      this.playCtx = playCtx;
+      this.playAudio = !!playCtx;
+      this.playAt = 0;
+      this.handlers = handlers;
+      this.running = false;
+      this.ready = false;
+      this.resumeHandle = null;
+      this.pending = [];
+      this.original = '';
+      this.translation = '';
+    }
+
+    async start() {
+      this.running = true;
+      this.ctx = new AudioContext();
+      const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' }));
+      await this.ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
+      const source = this.ctx.createMediaStreamSource(this.stream);
+      const tap = new AudioWorkletNode(this.ctx, 'pcm-tap');
+      const mute = this.ctx.createGain();
+      mute.gain.value = 0;
+      source.connect(tap).connect(mute).connect(this.ctx.destination);
+      if (this.ctx.state === 'suspended') await this.ctx.resume();
+      this.resampler = new Resampler(this.ctx.sampleRate, LIVE_INPUT_RATE);
+      tap.port.onmessage = (e) => this.onFrames(e.data);
+      this.stream.getAudioTracks()[0].addEventListener('ended', () => {
+        if (this.running) this.handlers.onFatal('Le partage audio a été arrêté.');
+      });
+      await this.connect();
+    }
+
+    connect() {
+      return new Promise((resolve, reject) => {
+        const ws = new WebSocket('wss://generativelanguage.googleapis.com/ws/'
+          + 'google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent'
+          + `?key=${encodeURIComponent(this.apiKey)}`);
+        ws.binaryType = 'arraybuffer';
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; ws.close(); reject(new Error('Gemini Live ne répond pas (délai dépassé).')); }
+        }, 15000);
+
+        ws.onopen = () => ws.send(JSON.stringify({ setup: this.setupMessage() }));
+        ws.onmessage = (e) => {
+          const msg = JSON.parse(typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data));
+          if (msg.setupComplete) {
+            if (this.ws && this.ws !== ws) this.ws.close();
+            this.ws = ws;
+            this.ready = true;
+            clearTimeout(timer);
+            if (!settled) { settled = true; resolve(); }
+            return;
+          }
+          this.onMessage(msg);
+        };
+        ws.onclose = (e) => {
+          clearTimeout(timer);
+          if (!settled) {
+            settled = true;
+            reject(new Error(this.explainClose(e)));
+            return;
+          }
+          if (ws !== this.ws || !this.running) return;
+          this.ready = false;
+          // Coupure (fin de session, réseau) : on se reconnecte en reprenant la session.
+          if (e.code === 1008 || e.code === 1007) {
+            this.handlers.onFatal(this.explainClose(e));
+            return;
+          }
+          this.reconnect();
+        };
+      });
+    }
+
+    reconnect(delay = 500) {
+      if (this.reconnecting || !this.running) return;
+      this.reconnecting = true;
+      setTimeout(async () => {
+        try {
+          await this.connect();
+        } catch (err) {
+          this.handlers.onWarning(`Reconnexion à Gemini Live… (${err.message})`);
+          this.reconnecting = false;
+          return this.reconnect(Math.min(delay * 2, 8000));
+        }
+        this.reconnecting = false;
+      }, delay);
+    }
+
+    explainClose(e) {
+      const reason = e.reason || `code ${e.code}`;
+      if (/api key|API_KEY|permission|unauth/i.test(reason)) return `Clé API Gemini refusée. (${reason})`;
+      if (/not found|not supported/i.test(reason)) return `Modèle Live introuvable : vérifiez son nom. (${reason})`;
+      if (/quota|exhausted|rate/i.test(reason)) return `Quota Gemini atteint. (${reason})`;
+      return `Connexion Gemini Live fermée. (${reason})`;
+    }
+
+    setupMessage() {
+      return {
+        model: `models/${this.model}`,
+        generationConfig: {
+          responseModalities: ['AUDIO'],
+          translationConfig: {
+            targetLanguageCode: this.targetLang,
+            // Ne pas répéter ce qui est déjà en français (évite aussi de retraduire la voix lue à voix haute).
+            echoTargetLanguage: false,
+          },
+        },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        realtimeInputConfig: { automaticActivityDetection: { disabled: false } },
+        sessionResumption: this.resumeHandle ? { handle: this.resumeHandle } : {},
+      };
+    }
+
+    onFrames(frame) {
+      if (!this.running) return;
+      this.pending.push(this.resampler.push(frame));
+      const total = this.pending.reduce((n, a) => n + a.length, 0);
+      if (total < LIVE_INPUT_RATE / 10) return; // envoi toutes les ~100 ms
+      const pcm = new Int16Array(total);
+      let offset = 0;
+      for (const a of this.pending) { pcm.set(a, offset); offset += a.length; }
+      this.pending = [];
+      if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      this.ws.send(JSON.stringify({
+        realtimeInput: {
+          audio: { mimeType: `audio/pcm;rate=${LIVE_INPUT_RATE}`, data: bytesToBase64(new Uint8Array(pcm.buffer)) },
+        },
+      }));
+    }
+
+    onMessage(msg) {
+      if (msg.sessionResumptionUpdate && msg.sessionResumptionUpdate.resumable && msg.sessionResumptionUpdate.newHandle) {
+        this.resumeHandle = msg.sessionResumptionUpdate.newHandle;
+      }
+      if (msg.goAway) this.reconnect(0); // le serveur va fermer : on ouvre la suite tout de suite
+
+      const sc = msg.serverContent;
+      if (!sc) return;
+      if (sc.inputTranscription && sc.inputTranscription.text) this.original += sc.inputTranscription.text;
+      if (sc.outputTranscription && sc.outputTranscription.text) this.translation += sc.outputTranscription.text;
+      if (this.playAudio && sc.modelTurn && sc.modelTurn.parts) {
+        for (const part of sc.modelTurn.parts) {
+          if (part.inlineData && part.inlineData.data) this.play(part.inlineData.data);
+        }
+      }
+
+      // Une phrase est terminée : fin du tour, ou longue phrase qui se termine par une ponctuation.
+      const sentenceDone = this.translation.length > 160 && /[.!?…]\s*$/.test(this.translation);
+      if (sc.turnComplete || sentenceDone) this.flush();
+      else if (this.translation || this.original) this.handlers.onLive(this.translation, this.original);
+    }
+
+    flush() {
+      const original = this.original.trim();
+      const translation = this.translation.trim();
+      this.original = '';
+      this.translation = '';
+      if (translation) this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
+    }
+
+    play(base64) {
+      const bin = atob(base64);
+      const samples = new Float32Array(bin.length >> 1);
+      for (let i = 0; i < samples.length; i++) {
+        let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+        if (v >= 0x8000) v -= 0x10000;
+        samples[i] = v / 0x8000;
+      }
+      const buffer = this.playCtx.createBuffer(1, samples.length, LIVE_OUTPUT_RATE);
+      buffer.copyToChannel(samples, 0);
+      const src = this.playCtx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(this.playCtx.destination);
+      const now = this.playCtx.currentTime;
+      // Si la voix prend plus de 3 s de retard, on rattrape le direct.
+      if (this.playAt < now || this.playAt - now > 3) this.playAt = now + 0.05;
+      src.start(this.playAt);
+      this.playAt += buffer.duration;
+    }
+
+    stop() {
+      this.running = false;
+      this.ready = false;
+      this.flush();
+      if (this.ws) { this.ws.onclose = null; this.ws.close(); }
+      if (this.ctx) this.ctx.close();
+      if (this.playCtx) this.playCtx.close();
+    }
+  }
+
   // ---------- Démarrage / arrêt ----------
 
   let engine = null;
@@ -604,6 +844,8 @@
     const engineName = $('engine').value;
     const lang = $('srcLang').value;
     $('startBtn').disabled = true;
+    // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
+    const livePlayCtx = engineName === 'live' && $('speak').checked ? new AudioContext() : null;
 
     try {
       if (engineName === 'browser' && !SpeechRecognition) {
@@ -613,13 +855,13 @@
         $('whisperSettings').open = true;
         throw new Error('Entrez une clé API pour le moteur Whisper.');
       }
-      if (engineName === 'gemini' && !$('geminiKey').value.trim()) {
+      if ((engineName === 'gemini' || engineName === 'live') && !$('geminiKey').value.trim()) {
         $('geminiSettings').open = true;
         throw new Error('Entrez votre clé API Gemini (gratuite sur aistudio.google.com/apikey).');
       }
 
-      let provider = 'gemini';
-      if (engineName !== 'gemini') {
+      let provider = engineName;
+      if (engineName !== 'gemini' && engineName !== 'live') {
         setStatus('Préparation de la traduction…');
         provider = await translator.configure($('translator').value, lang, $('tgtLang').value, (p) => {
           setStatus(`Téléchargement du modèle de traduction… ${Math.round(p * 100)} %`);
@@ -634,6 +876,7 @@
 
       const handlers = {
         onInterim,
+        onLive: (translation, original) => showLive(translation, original, true),
         onFinal,
         onWarning: (msg) => { console.warn(msg); showWarning(msg); },
         onFatal: (msg) => { stop(); setStatus(msg, 'error'); },
@@ -641,6 +884,14 @@
 
       if (engineName === 'browser') {
         engine = new BrowserEngine({ lang, track: mediaStream ? mediaStream.getAudioTracks()[0] : null }, handlers);
+      } else if (engineName === 'live') {
+        engine = new GeminiLiveEngine({
+          stream: mediaStream,
+          apiKey: $('geminiKey').value.trim(),
+          model: $('liveModel').value.trim() || 'gemini-3.5-live-translate-preview',
+          targetLang: $('tgtLang').value,
+          playCtx: livePlayCtx,
+        }, handlers);
       } else if (engineName === 'gemini') {
         const optionText = (id) => $(id).selectedOptions[0].textContent;
         engine = new GeminiEngine({
@@ -664,11 +915,12 @@
 
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch { /* facultatif */ }
 
-      const providerNames = { gemini: 'Gemini', builtin: 'Chrome hors ligne', google: 'Google', mymemory: 'MyMemory' };
+      const providerNames = { live: 'Gemini Live (simultanée)', gemini: 'Gemini', builtin: 'Chrome hors ligne', google: 'Google', mymemory: 'MyMemory' };
       setStatus(`Écoute en cours — traduction : ${providerNames[provider]}`, 'listening');
       showLive('', '', false);
       $('stopBtn').disabled = false;
     } catch (err) {
+      if (livePlayCtx && !engine) livePlayCtx.close();
       stop();
       const msg = err.name === 'NotAllowedError' ? 'Autorisation refusée (micro ou partage d\'écran).' : err.message;
       setStatus(msg, 'error');

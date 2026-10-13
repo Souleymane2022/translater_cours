@@ -29,7 +29,7 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 
 | Situation | Réglage conseillé |
 |---|---|
-| Cours en salle, en anglais | Source : Microphone — Moteur : Gemini |
+| Cours en salle, en anglais | Source : Microphone — Moteur : Gemini Live |
 | Réunion Zoom/Meet/Teams **dans le navigateur** | Source : Audio d'un onglet — choisir l'onglet de la réunion |
 | Application **Zoom de bureau** (Windows) | Source : Audio d'un onglet → « Écran entier » + « Partager l'audio du système » |
 | Application Zoom de bureau (Mac) ou téléphone | Source : Microphone (le micro capte le son des haut-parleurs) |
@@ -38,7 +38,12 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 ## ⚙️ Moteurs
 
 ### Reconnaissance vocale
-- **✨ Gemini (recommandé, surtout sur téléphone)** : Gemini écoute chaque phrase et renvoie **en une seule
+- **⚡ Gemini Live — traduction simultanée (recommandé)** : le son est envoyé en continu au modèle
+  d'interprétation `gemini-3.5-live-translate-preview`. Le texte français s'écrit **pendant que l'orateur parle**,
+  et avec « Lire la traduction à voix haute », on entend une **voix d'interprète** en français, comme une
+  traduction simultanée. Même clé gratuite que ci-dessous. La session se reconnecte automatiquement
+  si Google la coupe.
+- **✨ Gemini phrase par phrase** : Gemini écoute chaque phrase et renvoie **en une seule
   requête** la transcription et une traduction naturelle, qui tient compte du contexte des phrases précédentes.
   Bien plus précis que la reconnaissance du navigateur, avec un délai de 2 à 4 s après chaque pause.
   1. Créez une clé gratuite sur <https://aistudio.google.com/apikey> (compte Google).
@@ -82,7 +87,7 @@ python3 -m http.server 8000
 ```
 index.html            Interface
 style.css             Styles (thème clair/sombre, mobile)
-app.js                Reconnaissance vocale (navigateur, Whisper, Gemini), affichage, sous-titres flottants, export
+app.js                Reconnaissance vocale (navigateur, Whisper, Gemini, Gemini Live), affichage, sous-titres flottants, export
 translate.js          Services de traduction (Chrome intégré, Google, MyMemory)
 sw.js                 Service worker (installation en application)
 manifest.webmanifest  Manifeste PWA
