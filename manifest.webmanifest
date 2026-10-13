@@ -1,0 +1,14 @@
+{
+  "name": "Traducteur de Cours en direct",
+  "short_name": "Traducteur",
+  "description": "Traduction en temps réel de l'anglais vers le français pour les cours et réunions.",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1020",
+  "theme_color": "#1d4ed8",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

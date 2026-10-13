@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Traducteur de Cours en direct</title>
+  <meta name="description" content="Traduction en temps réel de l'anglais vers le français pour les cours et réunions (Zoom, Meet, Teams…).">
+  <meta name="theme-color" content="#1d4ed8">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="32" height="32">
+      <h1>Traducteur de Cours</h1>
+    </div>
+    <div class="status" id="status" role="status" aria-live="polite">Prêt</div>
+  </header>
+
+  <main>
+    <section class="controls card">
+      <div class="row">
+        <label>Source audio
+          <select id="source">
+            <option value="mic">🎤 Microphone (salle de cours, haut-parleurs)</option>
+            <option value="tab">🖥️ Audio d'un onglet / de l'écran (Zoom web, Meet, Teams, YouTube…)</option>
+          </select>
+        </label>
+        <label>Moteur de reconnaissance
+          <select id="engine">
+            <option value="browser">Navigateur (gratuit — Chrome / Edge)</option>
+            <option value="whisper">Whisper / API compatible OpenAI (clé requise)</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>Langue parlée
+          <select id="srcLang">
+            <option value="en-US">Anglais (États-Unis)</option>
+            <option value="en-GB">Anglais (Royaume-Uni)</option>
+            <option value="en-IN">Anglais (Inde)</option>
+            <option value="en-AU">Anglais (Australie)</option>
+            <option value="es-ES">Espagnol</option>
+            <option value="de-DE">Allemand</option>
+            <option value="ar-SA">Arabe</option>
+            <option value="zh-CN">Chinois</option>
+          </select>
+        </label>
+        <label>Traduire vers
+          <select id="tgtLang">
+            <option value="fr">Français</option>
+            <option value="en">Anglais</option>
+            <option value="ar">Arabe</option>
+            <option value="es">Espagnol</option>
+          </select>
+        </label>
+        <label>Service de traduction
+          <select id="translator">
+            <option value="auto">Automatique (meilleur disponible)</option>
+            <option value="builtin">Chrome intégré (hors ligne, privé)</option>
+            <option value="google">Google Traduction (gratuit)</option>
+            <option value="mymemory">MyMemory (gratuit)</option>
+          </select>
+        </label>
+      </div>
+
+      <details id="whisperSettings">
+        <summary>Réglages Whisper / API (pour l'audio des onglets sur tous les navigateurs)</summary>
+        <p class="hint">Compatible OpenAI (<code>https://api.openai.com/v1</code>, modèle <code>gpt-4o-mini-transcribe</code>)
+          ou Groq, qui a une offre gratuite (<code>https://api.groq.com/openai/v1</code>, modèle <code>whisper-large-v3-turbo</code>).
+          La clé reste dans votre navigateur.</p>
+        <div class="row">
+          <label>URL de l'API <input id="apiBase" type="url" placeholder="https://api.openai.com/v1"></label>
+          <label>Modèle <input id="apiModel" type="text" placeholder="gpt-4o-mini-transcribe"></label>
+          <label>Clé API <input id="apiKey" type="password" autocomplete="off" placeholder="sk-..."></label>
+        </div>
+      </details>
+
+      <div class="row options">
+        <label class="check"><input type="checkbox" id="speak"> 🔊 Lire la traduction à voix haute</label>
+        <label class="check"><input type="checkbox" id="showOriginal" checked> Afficher le texte original</label>
+        <label class="inline">Taille du texte <input type="range" id="fontSize" min="18" max="64" value="32"></label>
+      </div>
+
+      <div class="row buttons">
+        <button id="startBtn" class="primary">▶ Démarrer la traduction</button>
+        <button id="stopBtn" class="danger" disabled>■ Arrêter</button>
+        <button id="pipBtn" title="Fenêtre flottante au-dessus de Zoom / Teams">🪟 Sous-titres flottants</button>
+        <button id="fullBtn">⛶ Plein écran</button>
+        <button id="exportBtn">💾 Exporter</button>
+        <button id="clearBtn">🗑 Effacer</button>
+      </div>
+      <p class="hint" id="sourceHint"></p>
+    </section>
+
+    <section id="stage" class="stage card">
+      <div id="live" class="live">
+        <p class="live-tr" id="liveTr">La traduction apparaîtra ici…</p>
+        <p class="live-src" id="liveSrc"></p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Historique</h2>
+      <ol id="history" class="history"></ol>
+    </section>
+  </main>
+
+  <footer>
+    Fonctionne au mieux dans Google Chrome ou Microsoft Edge. Aucune donnée n'est stockée sur un serveur.
+  </footer>
+
+  <script src="translate.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
