@@ -705,6 +705,8 @@
           await this.connect();
         } catch (err) {
           this.handlers.onWarning(`Reconnexion à Gemini Live… (${err.message})`);
+          // La session n'a pas pu être reprise (expirée après une longue écoute) : on en ouvre une nouvelle.
+          this.resumeHandle = null;
           this.reconnecting = false;
           return this.reconnect(Math.min(delay * 2, 8000));
         }
