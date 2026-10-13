@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Démo Traducteur de Cours</title>
+<!--
+  Vidéo de démonstration (1080×1920, 36 s). Chaque image est calculée par render(t),
+  ce qui permet de filmer la vidéo image par image (voir render.js).
+  Ouvrir ce fichier dans un navigateur la joue en boucle.
+-->
+<style>
+  :root { --blue: #1d4ed8; --navy: #0b1020; --yellow: #facc15; --text: #f8fafc; --muted: #94a3b8; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--navy); }
+  body { font-family: "Inter", "Noto Color Emoji", sans-serif; color: var(--text); position: relative; }
+  .bg { position: absolute; inset: 0; background:
+      radial-gradient(900px 900px at 85% 10%, rgba(29, 78, 216, .55), transparent 70%),
+      radial-gradient(800px 800px at 10% 95%, rgba(250, 204, 21, .18), transparent 70%),
+      linear-gradient(180deg, #0b1020 0%, #0f1a3d 100%); }
+  .scene { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 80px; text-align: center; opacity: 0; }
+  .float-word { position: absolute; font-weight: 700; color: rgba(148, 163, 184, .07); white-space: nowrap; filter: blur(2px); }
+  h1, h2 { font-family: "Inter Display", "Inter", "Noto Color Emoji", sans-serif; letter-spacing: -0.02em; }
+  .hook { font-size: 112px; font-weight: 900; line-height: 1.05; }
+  .hook2 { font-size: 84px; font-weight: 800; line-height: 1.1; margin-top: 56px; color: var(--yellow); }
+  .chips { display: flex; flex-direction: column; gap: 32px; margin-top: 70px; width: 100%; align-items: center; }
+  .chip { font-size: 54px; white-space: nowrap; font-weight: 700; padding: 28px 56px; border-radius: 999px; background: rgba(255,255,255,.08); border: 2px solid rgba(255,255,255,.14); }
+  .s2-title { font-size: 104px; font-weight: 900; }
+  .s2-title em { font-style: normal; color: var(--yellow); }
+  .logo { width: 300px; height: 300px; }
+  .brand { font-size: 104px; font-weight: 900; margin-top: 56px; }
+  .tagline { font-size: 58px; font-weight: 600; color: #cbd5e1; margin-top: 36px; line-height: 1.3; }
+  .tagline b { color: var(--yellow); }
+
+  /* Scène démo */
+  .demo-label { font-size: 56px; font-weight: 800; margin-bottom: 40px; }
+  .speaker { display: flex; align-items: center; gap: 28px; background: rgba(255,255,255,.08); border-radius: 36px; padding: 26px 40px; margin-bottom: 44px; border: 2px solid rgba(255,255,255,.12); }
+  .speaker .avatar { font-size: 76px; }
+  .wave { display: flex; align-items: center; gap: 10px; height: 90px; }
+  .wave i { display: block; width: 14px; border-radius: 7px; background: var(--yellow); }
+  .speaker .lang { font-size: 44px; font-weight: 800; color: var(--muted); }
+  .phone { width: 820px; height: 1240px; border-radius: 80px; background: #f4f6fb; border: 18px solid #111827; box-shadow: 0 40px 120px rgba(0,0,0,.6); overflow: hidden; text-align: left; display: flex; flex-direction: column; }
+  .app-bar { background: var(--blue); padding: 40px 36px 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .app-title { display: flex; align-items: center; gap: 16px; font-size: 38px; font-weight: 800; color: #fff; }
+  .app-title svg { width: 58px; height: 58px; }
+  .pill { font-size: 26px; font-weight: 600; color: #fff; padding: 10px 20px; border-radius: 999px; background: rgba(255,255,255,.2); white-space: nowrap; }
+  .pill .dot { color: #f87171; }
+  .stage { margin: 28px; border-radius: 28px; background: var(--navy); padding: 36px; min-height: 440px; display: flex; flex-direction: column; justify-content: flex-end; }
+  .fr { font-size: 52px; font-weight: 700; line-height: 1.25; color: #fff; min-height: 260px; }
+  .en { font-size: 32px; font-style: italic; color: var(--muted); margin-top: 18px; min-height: 84px; line-height: 1.3; }
+  .history { margin: 0 28px; background: #fff; border-radius: 28px; padding: 28px 32px; flex: 1; color: #111827; overflow: hidden; }
+  .history h3 { font-size: 32px; margin-bottom: 14px; }
+  .item { border-bottom: 2px solid #e5e7eb; padding: 14px 0; }
+  .item .t { font-size: 22px; color: #6b7280; }
+  .item .f { font-size: 29px; font-weight: 600; line-height: 1.3; }
+  .item .e { font-size: 23px; font-style: italic; color: #6b7280; }
+  .demo-caption { margin-top: 44px; font-size: 54px; font-weight: 800; }
+  .demo-caption em { font-style: normal; color: var(--yellow); }
+
+  /* Fonctionnalités */
+  .s5-title { font-size: 96px; font-weight: 900; margin-bottom: 64px; }
+  .cards { display: grid; gap: 30px; width: 100%; }
+  .card { display: flex; align-items: center; gap: 36px; text-align: left; padding: 36px 44px; border-radius: 40px; background: rgba(255,255,255,.07); border: 2px solid rgba(255,255,255,.12); }
+  .card .ic { font-size: 84px; }
+  .card b { display: block; font-size: 52px; font-weight: 800; }
+  .card span { font-size: 36px; color: #cbd5e1; }
+
+  /* Appel à l'action */
+  .cta { font-size: 100px; font-weight: 900; line-height: 1.08; }
+  .cta em { font-style: normal; color: var(--yellow); }
+  .url { margin-top: 70px; font-size: 38px; font-weight: 800; padding: 34px 50px; border-radius: 999px; background: var(--yellow); color: var(--navy); }
+  .perks { margin-top: 56px; font-size: 44px; font-weight: 600; color: #cbd5e1; }
+  .logo-sm { width: 170px; height: 170px; margin-bottom: 60px; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div id="floats"></div>
+
+<template id="logo-svg">
+  <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+    <rect width="512" height="512" rx="96" fill="#1d4ed8"/>
+    <rect x="64" y="112" width="240" height="170" rx="28" fill="#fff"/>
+    <text x="184" y="225" font-family="Inter, Arial, sans-serif" font-size="96" font-weight="800" fill="#1d4ed8" text-anchor="middle">EN</text>
+    <rect x="208" y="246" width="240" height="170" rx="28" fill="#facc15"/>
+    <text x="328" y="359" font-family="Inter, Arial, sans-serif" font-size="96" font-weight="800" fill="#0b1020" text-anchor="middle">FR</text>
+  </svg>
+</template>
+
+<section class="scene" id="s1">
+  <h1 class="hook" id="hook1">Ton cours est<br>en anglais&nbsp;?</h1>
+  <h2 class="hook2" id="hook2">Et tu rates la moitié&nbsp;? 😩</h2>
+</section>
+
+<section class="scene" id="s2">
+  <h2 class="s2-title">Tout est en <em>anglais</em>…</h2>
+  <div class="chips">
+    <div class="chip">🎓 Les cours en amphi</div>
+    <div class="chip">💻 Les réunions Zoom & Teams</div>
+    <div class="chip">▶️ Les vidéos YouTube</div>
+  </div>
+</section>
+
+<section class="scene" id="s3">
+  <div class="logo" data-logo></div>
+  <h1 class="brand">Traducteur de Cours</h1>
+  <p class="tagline">La <b>traduction simultanée</b><br>en français, en direct.</p>
+</section>
+
+<section class="scene" id="s4">
+  <div class="demo-label">🎤 Le prof parle anglais…</div>
+  <div class="speaker">
+    <div class="avatar">👨‍🏫</div>
+    <div class="wave" id="wave"></div>
+    <div class="lang">EN</div>
+  </div>
+  <div class="phone">
+    <div class="app-bar">
+      <div class="app-title"><span data-logo style="display:inline-flex"></span>Traducteur de Cours</div>
+      <div class="pill"><span class="dot">●</span> Gemini Live</div>
+    </div>
+    <div class="stage">
+      <p class="fr" id="fr"></p>
+      <p class="en" id="en"></p>
+    </div>
+    <div class="history">
+      <h3>Historique</h3>
+      <div id="hist"></div>
+    </div>
+  </div>
+  <div class="demo-caption" id="demoCap">⚡ Traduit <em>pendant</em> qu'il parle</div>
+</section>
+
+<section class="scene" id="s5">
+  <h2 class="s5-title">Tout ce qu'il te faut</h2>
+  <div class="cards">
+    <div class="card"><div class="ic">⚡</div><div><b>Simultané</b><span>Le français s'écrit en direct</span></div></div>
+    <div class="card"><div class="ic">🔊</div><div><b>Voix française</b><span>Écoute l'interprète dans tes écouteurs</span></div></div>
+    <div class="card"><div class="ic">💻</div><div><b>Zoom, Meet, Teams</b><span>Et les cours en salle avec le micro</span></div></div>
+    <div class="card"><div class="ic">💾</div><div><b>Tes notes de cours</b><span>Exporte tout pour réviser</span></div></div>
+    <div class="card"><div class="ic">📱</div><div><b>Téléphone & PC</b><span>Rien à installer</span></div></div>
+  </div>
+</section>
+
+<section class="scene" id="s6">
+  <div class="logo-sm" data-logo></div>
+  <h1 class="cta">Comprends enfin<br>tes cours en <em>anglais</em>.</h1>
+  <div class="url">souleymane2022.github.io/translater_cours</div>
+  <p class="perks">Gratuit • Sans inscription • Dans ton navigateur</p>
+</section>
+
+<script>
+  const DURATION = 36;
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const prog = (t, a, b) => clamp((t - a) / (b - a));
+  const easeOut = (p) => 1 - Math.pow(1 - p, 3);
+  const easeBack = (p) => { const c = 1.7; return 1 + (c + 1) * Math.pow(p - 1, 3) + c * Math.pow(p - 1, 2); };
+
+  for (const el of document.querySelectorAll('[data-logo]')) {
+    el.append(document.getElementById('logo-svg').content.cloneNode(true));
+    el.querySelector('svg').style.width = el.classList.contains('logo') || el.classList.contains('logo-sm') ? '100%' : '58px';
+  }
+
+  // Mots anglais qui flottent en arrière-plan (positions fixes, mouvement selon t).
+  const FLOAT_WORDS = ['lecture', 'deadline', 'assignment', 'derivative', 'meeting', 'syllabus', 'homework', 'exam', 'professor', 'chapter', 'quiz', 'research'];
+  const floats = FLOAT_WORDS.map((w, i) => {
+    const el = document.createElement('div');
+    el.className = 'float-word';
+    el.textContent = w;
+    el.style.fontSize = `${60 + (i * 37) % 70}px`;
+    $('floats').append(el);
+    return { el, x: (i * 263) % 1000 - 80, y: (i * 389) % 1900, speed: 18 + (i * 13) % 30 };
+  });
+
+  // Barres de l'onde sonore.
+  const BARS = 22;
+  for (let i = 0; i < BARS; i++) $('wave').append(document.createElement('i'));
+
+  const SENTENCES = [
+    { en: 'Good morning everyone. Today we are going to talk about photosynthesis.',
+      fr: 'Bonjour à tous. Aujourd\'hui, nous allons parler de la photosynthèse.', time: '09:00:04' },
+    { en: 'Plants use sunlight to turn water and carbon dioxide into sugar.',
+      fr: 'Les plantes utilisent la lumière du soleil pour transformer l\'eau et le dioxyde de carbone en sucre.', time: '09:00:09' },
+    { en: 'Don\'t forget: the assignment is due on Friday.',
+      fr: 'N\'oubliez pas : le devoir est à rendre vendredi.', time: '09:00:13' },
+  ];
+  const DEMO_START = 12.6;
+  const SENT_DUR = 3.9;     // durée de parole d'une phrase
+  const LAG = 0.55;         // décalage de la traduction
+  const histEls = SENTENCES.map((s) => {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `<div class="t">${s.time}</div><div class="f"></div><div class="e"></div>`;
+    el.querySelector('.f').textContent = s.fr;
+    el.querySelector('.e').textContent = s.en;
+    $('hist').append(el);
+    return el;
+  });
+
+  const words = (text, p) => {
+    const w = text.split(' ');
+    return w.slice(0, Math.ceil(clamp(p) * w.length)).join(' ');
+  };
+
+  // Apparition / disparition d'une scène.
+  function scene(id, t, a, b, fade = 0.45) {
+    const el = $(id);
+    const pin = easeOut(prog(t, a, a + fade));
+    const pout = prog(t, b - fade, b);
+    const visible = t >= a && t < b;
+    el.style.opacity = visible ? Math.min(pin, 1 - pout) : 0;
+    el.style.transform = `translateY(${(1 - pin) * 60 - pout * 60}px) scale(${1 - pout * 0.04})`;
+    el.style.visibility = visible ? 'visible' : 'hidden';
+    return visible;
+  }
+
+  function pop(el, t, at, dur = 0.5) {
+    const p = prog(t, at, at + dur);
+    el.style.opacity = clamp(p * 2);
+    el.style.transform = `scale(${0.7 + 0.3 * easeBack(p)})`;
+  }
+
+  function slideIn(el, t, at, dur = 0.5) {
+    const p = easeOut(prog(t, at, at + dur));
+    el.style.opacity = p;
+    el.style.transform = `translateX(${(1 - p) * -120}px)`;
+  }
+
+  function render(t) {
+    // Arrière-plan
+    for (const f of floats) {
+      const y = ((f.y - t * f.speed) % 2100 + 2100) % 2100 - 100;
+      f.el.style.transform = `translate(${f.x}px, ${y}px)`;
+    }
+
+    // 1. Accroche
+    if (scene('s1', t, 0, 4.3)) {
+      pop($('hook1'), t, 0.15, 0.6);
+      pop($('hook2'), t, 1.5, 0.6);
+    }
+
+    // 2. Le problème
+    if (scene('s2', t, 4.3, 8.4)) {
+      document.querySelectorAll('#s2 .chip').forEach((c, i) => slideIn(c, t, 4.9 + i * 0.55));
+    }
+
+    // 3. La solution
+    if (scene('s3', t, 8.4, 12.2)) {
+      pop(document.querySelector('#s3 .logo'), t, 8.5, 0.7);
+      pop(document.querySelector('#s3 .brand'), t, 9.0, 0.6);
+      pop(document.querySelector('#s3 .tagline'), t, 9.7, 0.6);
+    }
+
+    // 4. La démo
+    if (scene('s4', t, 12.2, 27.2)) {
+      const d = t - DEMO_START;
+      const idx = clamp(Math.floor(d / (SENT_DUR + 0.6)), 0, SENTENCES.length - 1);
+      const local = d - idx * (SENT_DUR + 0.6);
+      const s = SENTENCES[idx];
+      const speaking = d >= 0 && local < SENT_DUR && d < SENTENCES.length * (SENT_DUR + 0.6);
+      $('en').textContent = d < 0 ? '' : words(s.en, local / SENT_DUR);
+      $('fr').textContent = d < 0 ? 'La traduction apparaît ici…' : words(s.fr, (local - LAG) / SENT_DUR);
+      $('fr').style.opacity = d < 0 ? 0.4 : 1;
+      histEls.forEach((el, i) => {
+        const at = DEMO_START + i * (SENT_DUR + 0.6) + SENT_DUR + LAG;
+        el.style.display = t >= at ? 'block' : 'none';
+        const p = easeOut(prog(t, at, at + 0.4));
+        el.style.opacity = p;
+        el.style.transform = `translateY(${(1 - p) * 30}px)`;
+      });
+      [...$('wave').children].forEach((bar, i) => {
+        const amp = speaking ? 0.35 + 0.65 * Math.abs(Math.sin(t * 9 + i * 0.8) * Math.sin(t * 3.3 + i * 1.7)) : 0.08;
+        bar.style.height = `${12 + amp * 78}px`;
+        bar.style.opacity = speaking ? 1 : 0.4;
+      });
+      pop($('demoCap'), t, 14.0, 0.6);
+    }
+
+    // 5. Fonctionnalités
+    if (scene('s5', t, 27.2, 31.8)) {
+      document.querySelectorAll('#s5 .card').forEach((c, i) => slideIn(c, t, 27.5 + i * 0.4));
+    }
+
+    // 6. Appel à l'action
+    if (scene('s6', t, 31.8, DURATION + 1, 0.45)) {
+      pop(document.querySelector('#s6 .logo-sm'), t, 31.9, 0.6);
+      pop(document.querySelector('#s6 .cta'), t, 32.2, 0.6);
+      pop(document.querySelector('#s6 .url'), t, 33.0, 0.6);
+      pop(document.querySelector('#s6 .perks'), t, 33.6, 0.6);
+    }
+  }
+
+  window.render = render;
+  window.DURATION = DURATION;
+  // Lecture en boucle quand la page est ouverte normalement (pas pendant l'enregistrement).
+  if (!location.search.includes('capture')) {
+    const t0 = performance.now();
+    const loop = () => { render(((performance.now() - t0) / 1000) % DURATION); requestAnimationFrame(loop); };
+    loop();
+  } else {
+    render(0);
+  }
+</script>
+</body>
+</html>
