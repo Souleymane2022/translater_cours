@@ -1,5 +1,5 @@
 // Service worker : met l'interface en cache pour un démarrage rapide et l'installation en application.
-const CACHE = 'traducteur-cours-v6';
+const CACHE = 'traducteur-cours-v7';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'translate.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {

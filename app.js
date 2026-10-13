@@ -6,6 +6,8 @@
   const SpeechRecognition = self.SpeechRecognition || self.webkitSpeechRecognition;
 
   const SETTINGS_KEY = 'traducteur-cours-settings';
+  // Version 2 : Gemini Live devient le moteur conseillé ; les anciens choix « Gemini » y sont basculés une fois.
+  const SETTINGS_VERSION = 2;
   const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'liveModel', 'speak', 'showOriginal', 'fontSize'];
 
   // Phrases que Whisper « invente » souvent sur du silence ou de la musique.
@@ -22,6 +24,7 @@
       if (el.type === 'checkbox') el.checked = !!saved[id];
       else el.value = saved[id];
     }
+    if ((saved.version || 1) < 2 && saved.engine === 'gemini') $('engine').value = 'live';
     if (!$('apiBase').value) $('apiBase').value = 'https://api.openai.com/v1';
     if (!$('apiModel').value) $('apiModel').value = 'gpt-4o-mini-transcribe';
     if (!$('liveModel').value) $('liveModel').value = 'gemini-3.5-live-translate-preview';
@@ -29,7 +32,7 @@
   }
 
   function saveSettings() {
-    const data = {};
+    const data = { version: SETTINGS_VERSION };
     for (const id of SETTING_FIELDS) {
       const el = $(id);
       data[id] = el.type === 'checkbox' ? el.checked : el.value;
@@ -993,6 +996,7 @@
   // ---------- Initialisation ----------
 
   loadSettings();
+  saveSettings();
   adaptToDevice();
   applyDisplaySettings();
   for (const id of SETTING_FIELDS) {
