@@ -20,6 +20,10 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
   - 📁 **fichier audio ou vidéo** : cours enregistré, vidéo téléchargée, message vocal d'un partenaire ;
   - 📤 **partage direct** : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours »
     (application installée, Android).
+- ▶️ **Vidéo YouTube dans l'application** : collez le lien, la vidéo est lue ici ; son volume baisse pendant
+  la voix de la traduction, la pause est suivie, et l'option « pause pendant la voix » évite de manquer quoi que ce soit.
+- **Résistant** : reconnexion automatique après une coupure, reprise après une pause, reprise du son quand le
+  téléphone le met en veille (bandeau « touchez pour reprendre » si besoin).
 - **Le son de la vidéo baisse automatiquement** pendant que la voix de la traduction parle, puis remonte
   (fichier audio/vidéo, ou onglet partagé sur ordinateur).
 - **Pas de répétitions** quand la vidéo est en pause : le silence n'est plus envoyé, et les échos d'une
@@ -48,6 +52,7 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 | Application **Zoom de bureau** (Windows) | Source : Audio d'un onglet → « Écran entier » + « Partager l'audio du système » |
 | Application Zoom de bureau (Mac) | Source : Microphone (le micro capte le son des haut-parleurs) |
 | Réunion Zoom, Meet ou WhatsApp **sur le téléphone** | Source : Réunion sur ce téléphone + Sous-titres flottants, réunion en haut-parleur |
+| Vidéo YouTube sur le téléphone | Source : Vidéo YouTube dans l'application (collez le lien) |
 | Cours enregistré, vidéo téléchargée, message vocal | Source : Fichier audio ou vidéo (ou « Partager » → Traducteur de Cours) |
 | Navigateur autre que Chrome/Edge (Firefox, Safari…) | Moteur : Whisper (clé API) |
 

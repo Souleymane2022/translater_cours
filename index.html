@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#1d4ed8">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
   <header class="topbar">
@@ -16,17 +16,22 @@
       <img src="icon.svg" alt="" width="32" height="32">
       <h1>Traducteur de Cours</h1>
     </div>
-    <div class="status" id="status" role="status" aria-live="polite">Prêt</div>
+    <div class="top-right">
+      <span class="duck-badge" id="duckBadge" hidden title="Le son de la vidéo est baissé pendant la voix">🔉</span>
+      <div class="status" id="status" role="status" aria-live="polite">Prêt</div>
+    </div>
   </header>
 
   <main>
     <div class="alert" id="alert" role="alert" hidden></div>
+    <button class="resume-banner" id="resumeBanner" hidden>🔇 Le son a été mis en veille par le téléphone — touchez ici pour reprendre l'écoute</button>
     <section class="controls card">
       <div class="row">
         <label>Source audio
           <select id="source">
             <option value="mic">🎤 Micro : cours, conférence ou réunion en salle</option>
             <option value="speaker">🔈 Réunion sur ce téléphone (Zoom, Meet, WhatsApp en haut-parleur)</option>
+            <option value="youtube">▶️ Vidéo YouTube dans l'application (son baissé pendant la voix)</option>
             <option value="file">📁 Fichier audio ou vidéo (cours enregistré, message vocal…)</option>
             <option value="tab">🖥️ Audio d'un onglet / de l'écran (Zoom web, Meet, Teams, YouTube…)</option>
           </select>
@@ -41,7 +46,7 @@
         </label>
       </div>
       <div class="row">
-        <label>Langue parlée
+        <label id="srcLangLabel">Langue parlée
           <select id="srcLang">
             <option value="en-US" data-name="English">Anglais (États-Unis)</option>
             <option value="en-GB" data-name="English">Anglais (Royaume-Uni)</option>
@@ -118,19 +123,33 @@
       <div class="row options">
         <label class="check"><input type="checkbox" id="speak"> 🔊 Lire la traduction à voix haute</label>
         <label class="check"><input type="checkbox" id="duck" checked> 🔉 Baisser le son de la vidéo pendant la voix</label>
+        <label class="check"><input type="checkbox" id="autoPause"> ⏸ Mettre la vidéo en pause pendant la voix (rien n'est manqué)</label>
         <label class="check"><input type="checkbox" id="showOriginal" checked> Afficher le texte original</label>
         <label class="inline">Taille du texte <input type="range" id="fontSize" min="18" max="64" value="32"></label>
       </div>
 
-      <div class="row buttons">
-        <button id="startBtn" class="primary">▶ Démarrer la traduction</button>
+      <div class="row buttons actions">
+        <button id="startBtn" class="primary">▶ Démarrer</button>
         <button id="stopBtn" class="danger" disabled>■ Arrêter</button>
         <button id="pipBtn" title="Fenêtre flottante au-dessus de Zoom, Meet, Teams ou WhatsApp">🪟 Sous-titres flottants</button>
+      </div>
+      <div class="row buttons">
         <button id="fullBtn">⛶ Plein écran</button>
         <button id="exportBtn">💾 Exporter</button>
         <button id="clearBtn">🗑 Effacer</button>
       </div>
+      <p class="onboarding" id="onboarding" hidden>🔑 <b>Première utilisation :</b> créez votre clé Gemini gratuite (1 minute, avec un compte Google)
+        sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>,
+        puis collez-la dans « Clé API Gemini » ci-dessus.</p>
       <p class="hint" id="sourceHint"></p>
+    </section>
+
+    <section id="ytCard" class="card player-card" hidden>
+      <div class="row file-row">
+        <input type="url" id="ytUrl" placeholder="Collez ici le lien de la vidéo YouTube" inputmode="url">
+        <button id="ytLoad" class="primary">Charger</button>
+      </div>
+      <div class="yt-box"><div id="ytPlayer"></div></div>
     </section>
 
     <section id="playerCard" class="card player-card" hidden>
@@ -160,7 +179,7 @@
     Fonctionne au mieux dans Google Chrome ou Microsoft Edge. Aucune donnée n'est stockée sur un serveur.
   </footer>
 
-  <script src="translate.js?v=15"></script>
-  <script src="app.js?v=15"></script>
+  <script src="translate.js?v=17"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

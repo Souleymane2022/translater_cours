@@ -68,3 +68,16 @@ Vérifie qu'en mode « Réunion sur ce téléphone » l'écho d'une traduction d
 tandis qu'une nouvelle phrase au même début passe ; que le micro n'envoie que du silence pendant que
 l'interprète parle, puis reprend ; qu'après 1,5 s de silence (vidéo en pause) plus rien n'est envoyé à Gemini ;
 que le son d'origine d'un fichier ou d'un onglet partagé baisse pendant la voix puis remonte. **10/10 réussis.**
+
+## Pause, résistance et vidéo YouTube (`pause-youtube-e2e.js`)
+
+```bash
+node pause-youtube-e2e.js fichier_audio.wav
+```
+
+Vérifie que la mise en pause d'une vidéo prévient Gemini (`audioStreamEnd`) et que la traduction reprend avec
+la lecture ; que les coupures passagères (quota par minute, erreur serveur, premier échec de connexion) sont
+suivies d'une reconnexion automatique sans arrêter l'écoute, alors qu'une clé refusée arrête avec un message
+clair ; qu'un message inattendu ne plante rien ; et qu'une vidéo YouTube lue dans l'application voit son volume
+baisser pendant la voix, sa pause suivie, et se met en pause automatiquement si l'option est cochée.
+(Le lecteur YouTube est simulé.) **20/20 réussis.**

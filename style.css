@@ -44,8 +44,8 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand h1 { font-size: 1.2rem; margin: 0; }
 .status {
-  flex-shrink: 0;
-  max-width: 50%;
+  flex-shrink: 1;
+  max-width: 60vw;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -162,3 +162,26 @@ body.pip .stage { min-height: 100vh; border: 0; border-radius: 0; padding: 12px;
 #player { width: 100%; max-height: 50vh; border-radius: 8px; background: #000; }
 #player:not([src]) { display: none; }
 #player.audio-only { height: 54px; background: transparent; }
+
+/* Reprise du son après une mise en veille */
+.resume-banner { width: 100%; padding: 14px; border: 0; border-radius: 12px; background: #f59e0b; color: #111827; font-weight: 700; font-size: 1rem; }
+.resume-banner[hidden] { display: none; }
+
+/* Vidéo YouTube lue dans l'application */
+#ytCard .file-row input { flex: 1 1 200px; }
+.yt-box { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 8px; overflow: hidden; }
+.yt-box iframe, .yt-box #ytPlayer { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.top-right { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.duck-badge { font-size: 1.1rem; }
+.duck-badge[hidden] { display: none; }
+
+/* Barre d'actions toujours accessible sur téléphone */
+@media (max-width: 700px) {
+  .actions { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; margin: 0; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: var(--card); border-top: 1px solid var(--border); box-shadow: 0 -6px 20px rgba(0, 0, 0, .15); flex-wrap: nowrap; }
+  .actions button { flex: 1 1 0; padding: 12px 6px; font-size: .95rem; }
+  .actions #pipBtn { flex: 1.3 1 0; }
+  body { padding-bottom: 84px; }
+}
+.onboarding { background: #fef9c3; color: #713f12; border-radius: 10px; padding: 12px 14px; margin: 8px 0; }
+.onboarding[hidden], #srcLangLabel[hidden] { display: none; }

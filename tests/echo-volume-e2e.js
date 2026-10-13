@@ -38,7 +38,7 @@ async function context(browser, { tone = true } = {}) {
   await ctx.routeWebSocket(/generativelanguage/, (ws) => ws.onMessage((raw) => {
     const m = JSON.parse(raw);
     if (m.setup) { state.ws = ws; ws.send(JSON.stringify({ setupComplete: {} })); }
-    if (m.realtimeInput) {
+    if (m.realtimeInput && m.realtimeInput.audio) {
       const pcm = Buffer.from(m.realtimeInput.audio.data, 'base64');
       let max = 0; for (let i = 0; i < pcm.length; i += 2) max = Math.max(max, Math.abs(pcm.readInt16LE(i)));
       state.frames.push({ t: Date.now(), max });

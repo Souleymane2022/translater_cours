@@ -8,7 +8,7 @@
   const SETTINGS_KEY = 'traducteur-cours-settings';
   // Version 2 : Gemini Live devient le moteur conseillé ; les anciens choix « Gemini » y sont basculés une fois.
   const SETTINGS_VERSION = 2;
-  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'liveModel', 'speak', 'duck', 'showOriginal', 'fontSize'];
+  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'liveModel', 'speak', 'duck', 'autoPause', 'ytUrl', 'showOriginal', 'fontSize'];
 
   // Phrases que Whisper « invente » souvent sur du silence ou de la musique.
   const WHISPER_HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|bye\.?|\.+|subtitles by .*|please subscribe.*)$/i;
@@ -49,6 +49,10 @@
     }
     $('whisperSettings').open = $('engine').value === 'whisper';
     $('playerCard').hidden = $('source').value !== 'file';
+    // Gemini Live reconnaît tout seul la langue parlée : un choix de moins.
+    $('srcLangLabel').hidden = $('engine').value === 'live';
+    $('onboarding').hidden = !(['live', 'gemini'].includes($('engine').value) && !$('geminiKey').value.trim());
+    $('ytCard').hidden = $('source').value !== 'youtube';
     const usesGemini = ['gemini', 'live'].includes($('engine').value);
     $('geminiSettings').open = usesGemini;
     $('translator').disabled = usesGemini;
@@ -72,6 +76,10 @@
         + 'posé à côté, ou rejoignez la réunion depuis un ordinateur. '
         + '🔊 Pendant que la voix de la traduction parle, l\'écoute fait une courte pause pour ne pas la retraduire. '
         + 'Le volume de Zoom, YouTube ou WhatsApp ne peut pas être baissé par le site : baissez-le un peu vous-même.');
+    } else if (source === 'youtube') {
+      hints.push('▶️ Collez le lien de la vidéo YouTube, appuyez sur « Charger », puis sur Démarrer. La vidéo est lue ici : '
+        + 'son volume baisse pendant la voix de la traduction, et la pause est suivie. Le son est capté par le micro : '
+        + 'gardez le haut-parleur (pas d\'écouteurs). Cochez « Mettre la vidéo en pause pendant la voix » pour ne rien manquer.');
     } else if (source === 'file') {
       hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
         + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
@@ -186,6 +194,9 @@
   function speakEnabled() {
     return $('speak').checked;
   }
+
+  // Sources dont l'application contrôle la lecture (volume, pause).
+  const controlledSource = () => ['file', 'youtube'].includes($('source').value);
 
   // Anti-écho en mode « Réunion sur ce téléphone » : le micro, sans annulation d'écho, entend aussi la voix
   // de la traduction. Gemini Live la reconnaît (déjà dans la langue cible) et l'ignore ; pour les autres
@@ -439,7 +450,7 @@
 
     async start() {
       this.running = true;
-      this.ctx = new AudioContext();
+      this.ctx = watchContext(new AudioContext());
       const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' }));
       await this.ctx.audioWorklet.addModule(url);
       URL.revokeObjectURL(url);
@@ -504,6 +515,14 @@
       if (/HTTP 404/.test(err.message)) return `Modèle introuvable : vérifiez son nom. (${err.message})`;
       return err.message;
     }
+
+    pauseInput() {
+      const seg = this.segment;
+      this.newSegment();
+      if (seg && seg.speechMs >= 400) this.enqueue(seg);
+    }
+
+    resumeInput() {}
 
     // Fin d'un fichier : on envoie le segment en cours et on attend toutes les réponses.
     async finish() {
@@ -733,14 +752,18 @@
       this.echoGuard = false; // micro qui entend le haut-parleur (réglé par start())
     }
 
+    pauseInput() { this.paused = true; }
+
+    resumeInput() { this.paused = false; this.silentMs = 0; }
+
     // La voix de l'interprète est en train d'être jouée (ou va l'être).
     voicePlaying() {
-      return !!this.playCtx && this.playAt > this.playCtx.currentTime - 0.4;
+      return !!this.playCtx && this.playAt > 0 && this.playAt > this.playCtx.currentTime - 0.4;
     }
 
     async start() {
       this.running = true;
-      this.ctx = new AudioContext();
+      this.ctx = watchContext(new AudioContext());
       const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' }));
       await this.ctx.audioWorklet.addModule(url);
       URL.revokeObjectURL(url);
@@ -755,7 +778,12 @@
       this.stream.getAudioTracks()[0].addEventListener('ended', () => {
         if (this.running) this.handlers.onFatal('Le partage audio a été arrêté.');
       });
-      await this.connect();
+      try {
+        await this.connect();
+      } catch (err) {
+        if (this.isPermanent(err.message)) throw err;
+        this.reconnect(); // coupure passagère : l'écoute démarre et la connexion se rétablit seule
+      }
     }
 
     connect() {
@@ -771,7 +799,8 @@
 
         ws.onopen = () => ws.send(JSON.stringify({ setup: this.setupMessage() }));
         ws.onmessage = (e) => {
-          const msg = JSON.parse(typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data));
+          let msg;
+          try { msg = JSON.parse(typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data)); } catch { return; }
           if (msg.setupComplete) {
             if (this.ws && this.ws !== ws) this.ws.close();
             this.ws = ws;
@@ -791,8 +820,9 @@
           }
           if (ws !== this.ws || !this.running) return;
           this.ready = false;
-          // Coupure (fin de session, réseau) : on se reconnecte en reprenant la session.
-          if (e.code === 1008 || e.code === 1007) {
+          // Clé ou modèle refusés : inutile d'insister. Toute autre coupure (fin de session, réseau,
+          // quota par minute, erreur passagère du serveur) : on se reconnecte.
+          if (this.isPermanent(e.reason)) {
             this.handlers.onFatal(this.explainClose(e));
             return;
           }
@@ -804,24 +834,35 @@
     reconnect(delay = 500) {
       if (this.reconnecting || !this.running) return;
       this.reconnecting = true;
+      this.handlers.onReconnecting(true);
       setTimeout(async () => {
+        if (!this.running) { this.reconnecting = false; return; }
         try {
           await this.connect();
         } catch (err) {
-          this.handlers.onWarning(`Reconnexion à Gemini Live… (${err.message})`);
+          this.reconnecting = false;
+          if (this.isPermanent(err.message)) { this.handlers.onFatal(err.message); return; }
           // La session n'a pas pu être reprise (expirée après une longue écoute) : on en ouvre une nouvelle.
           this.resumeHandle = null;
-          this.reconnecting = false;
           return this.reconnect(Math.min(delay * 2, 8000));
         }
         this.reconnecting = false;
+        this.handlers.onReconnecting(false);
       }, delay);
+    }
+
+    // Erreurs définitives : clé refusée, modèle inconnu. « Session not found » (reprise impossible) n'en est
+    // pas une : on ouvre simplement une nouvelle session.
+    isPermanent(reason) {
+      const r = reason || '';
+      return /api key|API_KEY|permission|unauth|Clé API|Modèle Live/i.test(r)
+        || /model[^]*?(not found|not supported)|(not found|not supported)[^]*?model/i.test(r);
     }
 
     explainClose(e) {
       const reason = e.reason || `code ${e.code}`;
       if (/api key|API_KEY|permission|unauth/i.test(reason)) return `Clé API Gemini refusée. (${reason})`;
-      if (/not found|not supported/i.test(reason)) return `Modèle Live introuvable : vérifiez son nom. (${reason})`;
+      if (/model[^]*?(not found|not supported)|(not found|not supported)[^]*?model/i.test(reason)) return `Modèle Live introuvable : vérifiez son nom. (${reason})`;
       if (/quota|exhausted|rate/i.test(reason)) return `Quota Gemini atteint. (${reason})`;
       return `Connexion Gemini Live fermée. (${reason})`;
     }
@@ -860,9 +901,17 @@
       let offset = 0;
       for (const a of this.pending) { pcm.set(a, offset); offset += a.length; }
       this.pending = [];
-      // Vidéo en pause, silence : après 1,5 s on n'envoie plus rien, Gemini n'a rien à « inventer ».
-      if (this.silentMs > LIVE_SILENCE_MS) return;
       if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      // Vidéo en pause ou silence de plus de 1,5 s : on n'envoie plus rien et on prévient Gemini
+      // (audioStreamEnd), comme le demande l'API ; l'envoi reprend dès que le son revient.
+      if (this.paused || this.silentMs > LIVE_SILENCE_MS) {
+        if (!this.streamEnded) {
+          this.streamEnded = true;
+          this.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+        }
+        return;
+      }
+      this.streamEnded = false;
       this.ws.send(JSON.stringify({
         realtimeInput: {
           audio: { mimeType: `audio/pcm;rate=${LIVE_INPUT_RATE}`, data: bytesToBase64(new Uint8Array(pcm.buffer)) },
@@ -994,6 +1043,7 @@
 
   let engine = null;
   let mediaStream = null;
+  let listeningLabel = 'Écoute en cours';
   let wakeLock = null;
 
   async function getAudioStream(source) {
@@ -1002,7 +1052,7 @@
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     }
-    if (source === 'speaker') {
+    if (source === 'speaker' || source === 'youtube') {
       // Sans annulation d'écho ni réduction de bruit : ces filtres effacent justement le son
       // du haut-parleur (la réunion Zoom, Meet ou WhatsApp qui se déroule sur ce téléphone).
       return navigator.mediaDevices.getUserMedia({
@@ -1037,7 +1087,7 @@
     const player = $('player');
     if (!player.getAttribute('src')) throw new Error('Choisissez d\'abord un fichier audio ou vidéo.');
     if (!filePlayer.ctx) {
-      filePlayer.ctx = new AudioContext();
+      filePlayer.ctx = watchContext(new AudioContext());
       filePlayer.node = filePlayer.ctx.createMediaElementSource(player);
       filePlayer.gain = filePlayer.ctx.createGain();
       filePlayer.node.connect(filePlayer.gain).connect(filePlayer.ctx.destination);
@@ -1086,6 +1136,94 @@
     } catch { /* stockage indisponible */ }
   }
 
+  // ---------- Vidéo YouTube lue dans l'application ----------
+  // Lire la vidéo dans l'application permet de baisser son volume et de suivre ses pauses, ce qu'aucun
+  // site ne peut faire avec l'application YouTube du téléphone. Le son est capté par le micro.
+
+  const yt = { player: null, api: null };
+
+  function youtubeId(url) {
+    const text = (url || '').trim();
+    const m = text.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/embed\/|\/live\/)([\w-]{11})/);
+    if (m) return m[1];
+    return /^[\w-]{11}$/.test(text) ? text : null;
+  }
+
+  function loadYouTubeApi() {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    if (!yt.api) {
+      yt.api = new Promise((resolve, reject) => {
+        window.onYouTubeIframeAPIReady = resolve;
+        const script = document.createElement('script');
+        script.src = 'https://www.youtube.com/iframe_api';
+        script.onerror = () => { yt.api = null; reject(new Error('Impossible de charger YouTube : vérifiez la connexion.')); };
+        document.head.append(script);
+      });
+    }
+    return yt.api;
+  }
+
+  async function loadYouTube() {
+    const id = youtubeId($('ytUrl').value);
+    if (!id) { setStatus('Lien YouTube non reconnu : copiez le lien de la vidéo (bouton « Partager » de YouTube).', 'error'); return; }
+    saveSettings();
+    setStatus('Chargement de la vidéo…');
+    try {
+      await loadYouTubeApi();
+      if (yt.player && yt.player.cueVideoById) yt.player.cueVideoById(id);
+      else {
+        await new Promise((resolve) => {
+          yt.player = new YT.Player('ytPlayer', {
+            videoId: id,
+            playerVars: { playsinline: 1, rel: 0 },
+            events: { onReady: resolve, onStateChange: onYouTubeState, onError: () => setStatus('Cette vidéo ne peut pas être lue ici (lecture intégrée désactivée par son auteur).', 'error') },
+          });
+        });
+      }
+      if (!engine) setStatus('Vidéo prête — appuyez sur Démarrer');
+    } catch (err) {
+      setStatus(err.message, 'error');
+    }
+  }
+
+  function onYouTubeState(e) {
+    if (e.data === 2) onMediaPaused(); // en pause
+    else if (e.data === 1) onMediaPlaying(); // en lecture
+    else if (e.data === 0) onMediaEnded(); // terminée
+  }
+
+  // ---------- Reprise du son après une mise en veille ----------
+  // Android et iOS suspendent le son d'une page quand on passe dans une autre application ou pendant
+  // un appel. On relance tous les contextes audio dès que possible ; si le navigateur exige un geste,
+  // un bandeau demande de toucher l'écran.
+  const audioContexts = new Set();
+
+  function watchContext(ctx) {
+    if (!ctx) return ctx;
+    audioContexts.add(ctx);
+    ctx.addEventListener('statechange', () => {
+      if (ctx.state === 'closed') audioContexts.delete(ctx);
+      else if (ctx.state !== 'running' && engine) resumeAudio();
+    });
+    return ctx;
+  }
+
+  async function resumeAudio() {
+    if (!engine) return;
+    await Promise.all([...audioContexts].map((ctx) => (ctx.state !== 'running' && ctx.state !== 'closed' ? ctx.resume().catch(() => {}) : null)));
+    const stuck = [...audioContexts].some((ctx) => ctx.state !== 'running' && ctx.state !== 'closed');
+    $('resumeBanner').hidden = !stuck;
+  }
+
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') resumeAudio(); });
+  document.addEventListener('pointerdown', () => { if (!$('resumeBanner').hidden) resumeAudio(); }, true);
+
+  // Filet de sécurité : une erreur imprévue est signalée, l'écoute continue.
+  self.addEventListener('error', (e) => { if (engine) showWarning(`Incident : ${e.message || 'erreur inattendue'} — l'écoute continue.`); });
+  self.addEventListener('unhandledrejection', (e) => {
+    if (engine) showWarning(`Incident : ${(e.reason && e.reason.message) || 'erreur inattendue'} — l'écoute continue.`);
+  });
+
   // ---------- Baisse du son d'origine pendant la voix de la traduction ----------
   // Possible quand l'application diffuse elle-même le son d'origine : fichier, ou onglet partagé sur
   // ordinateur (l'onglet est rendu muet et l'application rejoue son son). Les autres applications
@@ -1099,22 +1237,47 @@
       || ('speechSynthesis' in self && speechSynthesis.speaking);
   }
 
+  let autoPaused = false; // la vidéo a été mise en pause par l'application, le temps de la voix
+  let voiceEndedAt = 0;
+
+  function mediaIsPlaying() {
+    if ($('source').value === 'file') return !$('player').paused && !$('player').ended;
+    return !!(yt.player && yt.player.getPlayerState && yt.player.getPlayerState() === 1);
+  }
+  function pauseMedia() { if ($('source').value === 'file') $('player').pause(); else if (yt.player) yt.player.pauseVideo(); }
+  function playMedia() { if ($('source').value === 'file') $('player').play().catch(() => {}); else if (yt.player) yt.player.playVideo(); }
+
   function startDucking() {
     clearInterval(duckTimer);
     let last = 1;
     duckTimer = setInterval(() => {
-      const target = $('duck').checked && speakEnabled() && voiceActive() ? DUCK_LEVEL : 1;
+      const voice = speakEnabled() && voiceActive();
+      if (voice) voiceEndedAt = 0; else if (!voiceEndedAt) voiceEndedAt = Date.now();
+
+      // Pause automatique : la vidéo attend que l'interprète ait fini (rien n'est manqué).
+      if (controlledSource() && $('autoPause').checked) {
+        if (voice && !autoPaused && mediaIsPlaying()) { autoPaused = true; pauseMedia(); }
+        else if (!voice && autoPaused && Date.now() - voiceEndedAt > 400) { playMedia(); setTimeout(() => { autoPaused = false; }, 300); }
+      }
+
+      const target = $('duck').checked && voice ? DUCK_LEVEL : 1;
+      $('duckBadge').hidden = target === 1 && !autoPaused;
+      $('duckBadge').textContent = autoPaused ? '⏸' : '🔉';
       if (target === last) return;
       last = target;
-      for (const { ctx, gain } of [filePlayer, tabReplay]) {
-        if (ctx && gain) gain.gain.setTargetAtTime(target, ctx.currentTime, 0.12);
+      for (const audio of [filePlayer, tabReplay]) {
+        if (audio && audio.ctx && audio.gain) audio.gain.gain.setTargetAtTime(target, audio.ctx.currentTime, 0.12);
       }
+      if ($('source').value === 'youtube' && yt.player && yt.player.setVolume) yt.player.setVolume(Math.round(target * 100));
     }, 100);
   }
 
   function stopDucking() {
     clearInterval(duckTimer);
     duckTimer = null;
+    $('duckBadge').hidden = true;
+    if (autoPaused) { autoPaused = false; }
+    if (yt.player && yt.player.setVolume) yt.player.setVolume(100);
     if (filePlayer.gain) filePlayer.gain.gain.value = 1;
     if (tabReplay) { tabReplay.ctx.close(); tabReplay = null; }
   }
@@ -1141,11 +1304,19 @@
     const lang = $('srcLang').value;
     $('startBtn').disabled = true;
     // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
-    const livePlayCtx = engineName === 'live' && speakEnabled() ? new AudioContext() : null;
-    echoGuard = source === 'speaker';
-    const tabCtx = source === 'tab' ? new AudioContext() : null;
+    const livePlayCtx = watchContext(engineName === 'live' && speakEnabled() ? new AudioContext() : null);
+    echoGuard = source === 'speaker' || source === 'youtube';
+    const tabCtx = watchContext(source === 'tab' ? new AudioContext() : null);
     if (source === 'file') {
       try { prepareFilePlayback(); } catch (err) { $('startBtn').disabled = false; setStatus(err.message, 'error'); return; }
+    }
+    if (source === 'youtube') {
+      if (!yt.player || !yt.player.playVideo) {
+        $('startBtn').disabled = false;
+        setStatus('Collez le lien de la vidéo YouTube puis appuyez sur « Charger ».', 'error');
+        return;
+      }
+      yt.player.playVideo();
     }
 
     try {
@@ -1182,6 +1353,11 @@
         onFinal,
         onWarning: (msg) => { console.warn(msg); showWarning(msg); },
         onFatal: (msg) => { stop(); setStatus(msg, 'error'); },
+        onReconnecting: (on) => {
+          if (!engine) return;
+          if (on) setStatus('🔄 Reconnexion à Gemini…', 'listening');
+          else setStatus(listeningLabel, 'listening');
+        },
       };
 
       if (engineName === 'browser') {
@@ -1220,7 +1396,10 @@
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch { /* facultatif */ }
 
       const providerNames = { live: 'Gemini Live (simultanée)', gemini: 'Gemini', builtin: 'Chrome hors ligne', google: 'Google', mymemory: 'MyMemory' };
-      setStatus(`Écoute en cours — traduction : ${providerNames[provider]}`, 'listening');
+      listeningLabel = `Écoute en cours — traduction : ${providerNames[provider]}`;
+      setStatus(listeningLabel, 'listening');
+      // Sur téléphone, on amène la traduction à l'écran.
+      if (matchMedia('(max-width: 700px)').matches) $('stage').scrollIntoView({ behavior: 'smooth', block: 'start' });
       showLive('', '', false);
       $('stopBtn').disabled = false;
     } catch (err) {
@@ -1375,13 +1554,33 @@
     $(id).addEventListener('change', () => { saveSettings(); applyDisplaySettings(); });
   }
   $('fontSize').addEventListener('input', applyDisplaySettings);
+  $('geminiKey').addEventListener('input', applyDisplaySettings);
   $('fileInput').addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (file) setPlayerFile(file, file.name);
   });
-  // Fin du fichier : on attend la traduction des dernières phrases, puis on arrête.
-  $('player').addEventListener('ended', async () => {
-    if (!engine || $('source').value !== 'file') return;
+  // Pause / reprise du fichier par l'utilisateur (pas les pauses automatiques pendant la voix).
+  function onMediaPaused() {
+    if (!engine || autoPaused) return;
+    if (engine.pauseInput) engine.pauseInput();
+    setStatus('⏸ En pause — la traduction reprend avec la vidéo', 'listening');
+  }
+  function onMediaPlaying() {
+    if (!engine || autoPaused) return;
+    if (engine.resumeInput) engine.resumeInput();
+    setStatus(listeningLabel, 'listening');
+  }
+  $('player').addEventListener('pause', () => { if (!$('player').ended) onMediaPaused(); });
+  $('player').addEventListener('play', onMediaPlaying);
+  $('resumeBanner').addEventListener('click', resumeAudio);
+
+  // Fin du fichier ou de la vidéo : on attend la traduction des dernières phrases, puis on arrête.
+  $('player').addEventListener('ended', () => onMediaEnded());
+  $('ytLoad').addEventListener('click', loadYouTube);
+  $('ytUrl').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadYouTube(); });
+
+  async function onMediaEnded() {
+    if (!engine || !controlledSource()) return;
     const current = engine;
     setStatus('Fin de la lecture — traduction des dernières phrases…', 'listening');
     await new Promise((r) => setTimeout(r, 700)); // le silence de fin termine la phrase en cours
@@ -1390,8 +1589,10 @@
     if (engine !== current) return;
     stop();
     setStatus('Lecture terminée — la traduction complète est dans l\'historique');
-  });
+  }
   loadSharedFile();
+  // Accès en lecture pour le diagnostic et les tests automatiques.
+  self.traducteurDiagnostic = { engine: () => engine, voiceActive: () => voiceActive() };
   $('startBtn').addEventListener('click', start);
   $('stopBtn').addEventListener('click', stop);
   $('pipBtn').addEventListener('click', togglePip);
