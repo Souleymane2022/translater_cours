@@ -1,0 +1,51 @@
+{
+  "narration": {
+    "n1": "Ton cours ou ta réunion est en anglais, et tu ne comprends pas tout ? Voici comment le traduire en direct, avec Traducteur de Cours.",
+    "n2": "Ouvre le site dans Chrome, sur ton téléphone ou ton ordinateur. Il n'y a rien à installer.",
+    "n3": [
+      "Choisis le moteur Gemini Live, puis ajoute ta clé gratuite. Tu la trouves sur AI Studio, chez Google.",
+      "Choisis le moteur Gémini Laïve, puis ajoute ta clé gratuite. Tu la trouves sur A. I. Studio, chez Google."
+    ],
+    "n4": "Choisis la langue de traduction, et active la lecture à voix haute pour entendre l'interprète.",
+    "n5": "Appuie sur Démarrer, et pose ton téléphone près du professeur. Écoute.",
+    "n6": "Et ça marche aussi dans d'autres langues. Par exemple, en espagnol.",
+    "n7": "Ou en arabe, à lire directement à l'écran.",
+    "n8": "Traducteur de Cours. Gratuit, dans ton navigateur. Le lien est à l'écran."
+  },
+  "lecture": {
+    "fr": [
+      "Good morning everyone. Today we are going to talk about photosynthesis.",
+      "Plants use sunlight to turn water and carbon dioxide into sugar.",
+      "Don't forget, the assignment is due on Friday."
+    ],
+    "es": [
+      "This process also releases the oxygen that we breathe.",
+      "Please take notes, because it will be on the exam."
+    ],
+    "ar": [
+      "Now, let's look at the structure of a leaf. Any questions?"
+    ]
+  },
+  "voices": {
+    "narrator": [
+      "ff_siwis",
+      "fr-fr",
+      1.05
+    ],
+    "professor": [
+      "am_michael",
+      "en-us",
+      0.95
+    ],
+    "fr": [
+      "ff_siwis+am_michael:0.35",
+      "fr-fr",
+      1.1
+    ],
+    "es": [
+      "ef_dora",
+      "es",
+      1.1
+    ]
+  }
+}

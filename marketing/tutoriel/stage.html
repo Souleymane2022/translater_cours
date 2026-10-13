@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Tutoriel Traducteur de Cours</title>
+<!-- Plateau de la vidéo tutoriel (1080×1920) : l'application réelle tourne dans le téléphone (iframe).
+     record.js pilote l'application et ce plateau, puis filme le tout. -->
+<style>
+  :root { --blue: #1d4ed8; --navy: #0b1020; --yellow: #facc15; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; }
+  body { font-family: "Inter", "Noto Color Emoji", sans-serif; color: #f8fafc; position: relative;
+    background: radial-gradient(900px 900px at 85% 5%, rgba(29,78,216,.55), transparent 70%),
+                radial-gradient(800px 800px at 10% 100%, rgba(250,204,21,.16), transparent 70%),
+                linear-gradient(180deg, #0b1020, #0f1a3d); }
+
+  .top { position: absolute; top: 56px; left: 60px; right: 60px; height: 150px; display: flex; align-items: center; gap: 28px; transition: opacity .35s, transform .35s; }
+  .top.hide { opacity: 0; transform: translateY(-20px); }
+  .badge { flex: none; width: 110px; height: 110px; border-radius: 34px; background: var(--yellow); color: var(--navy); font-size: 60px; font-weight: 900; display: grid; place-items: center; }
+  .step-title { font-family: "Inter Display", "Inter", "Noto Color Emoji", sans-serif; font-size: 64px; font-weight: 900; line-height: 1.05; letter-spacing: -.02em; }
+
+  .phone { position: absolute; left: 175px; top: 236px; width: 730px; height: 1470px; border-radius: 76px; background: #000; padding: 18px; box-shadow: 0 40px 120px rgba(0,0,0,.65), 0 0 0 3px #1f2937; }
+  .screen { width: 100%; height: 100%; border-radius: 60px; overflow: hidden; background: #fff; position: relative; }
+  .statusbar { height: 54px; background: #1d4ed8; color: #fff; font-size: 26px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; padding: 0 44px; }
+  .urlbar { height: 86px; background: #1d4ed8; display: flex; align-items: center; padding: 0 22px 14px; }
+  .url { flex: 1; height: 64px; border-radius: 32px; background: rgba(255,255,255,.18); color: #fff; font-size: 27px; display: flex; align-items: center; padding: 0 26px; gap: 14px; white-space: nowrap; overflow: hidden; }
+  .url .caret { width: 3px; height: 32px; background: #fff; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .viewport { position: absolute; top: 140px; left: 0; width: 694px; height: 1294px; overflow: hidden; background: #f4f6fb; }
+  iframe { border: 0; width: 390px; height: 727px; transform: scale(1.7795); transform-origin: 0 0; background: #f4f6fb; }
+  .blank { position: absolute; inset: 0; background: #fff; display: grid; place-items: center; color: #9ca3af; font-size: 30px; transition: opacity .4s; }
+  .blank.hide { opacity: 0; pointer-events: none; }
+
+  .tap { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; border: 8px solid var(--yellow); background: rgba(250,204,21,.25); opacity: 0; pointer-events: none; z-index: 10; }
+  .tap.go { animation: tap .75s ease-out; }
+  @keyframes tap { 0% { opacity: 1; transform: scale(.4); } 60% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.35); } }
+
+  .sub { position: absolute; left: 50px; right: 50px; bottom: 44px; min-height: 160px; border-radius: 36px; background: rgba(11,16,32,.88); border: 2px solid rgba(255,255,255,.12); padding: 26px 40px; font-size: 40px; font-weight: 650; line-height: 1.3; text-align: center; display: grid; place-items: center; transition: opacity .3s; z-index: 5; }
+  .sub.hide { opacity: 0; }
+  .sub em { font-style: normal; color: var(--yellow); }
+
+  .card { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 80px;
+    background: radial-gradient(900px 900px at 85% 5%, rgba(29,78,216,.6), transparent 70%), linear-gradient(180deg, #0b1020, #0f1a3d); transition: opacity .5s; z-index: 20; }
+  .card.hide { opacity: 0; pointer-events: none; }
+  .card h1 { font-family: "Inter Display", "Inter", "Noto Color Emoji", sans-serif; font-size: 108px; font-weight: 900; line-height: 1.05; letter-spacing: -.02em; }
+  .card h1 em { font-style: normal; color: var(--yellow); }
+  .card p { font-size: 50px; font-weight: 600; color: #cbd5e1; margin-top: 50px; line-height: 1.35; }
+  .card .logo { width: 220px; height: 220px; margin-bottom: 70px; }
+  .card .link { margin-top: 70px; font-size: 38px; font-weight: 800; padding: 32px 46px; border-radius: 999px; background: var(--yellow); color: var(--navy); }
+  .flags { font-size: 80px; margin-top: 46px; letter-spacing: 12px; }
+</style>
+</head>
+<body>
+<template id="logo">
+  <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+    <rect width="512" height="512" rx="96" fill="#1d4ed8"/>
+    <rect x="64" y="112" width="240" height="170" rx="28" fill="#fff"/>
+    <text x="184" y="225" font-family="Inter, Arial, sans-serif" font-size="96" font-weight="800" fill="#1d4ed8" text-anchor="middle">EN</text>
+    <rect x="208" y="246" width="240" height="170" rx="28" fill="#facc15"/>
+    <text x="328" y="359" font-family="Inter, Arial, sans-serif" font-size="96" font-weight="800" fill="#0b1020" text-anchor="middle">FR</text>
+  </svg>
+</template>
+
+<div class="top hide" id="top"><div class="badge" id="badge">1</div><div class="step-title" id="stepTitle"></div></div>
+
+<div class="phone">
+  <div class="screen">
+    <div class="statusbar"><span>9:41</span><span>📶 🔋</span></div>
+    <div class="urlbar"><div class="url">🔒 <span id="urlText"></span><span class="caret" id="caret"></span></div></div>
+    <div class="viewport" id="viewport">
+      <iframe id="app" title="Traducteur de Cours"></iframe>
+      <div class="blank" id="blank">Nouvel onglet</div>
+    </div>
+  </div>
+</div>
+<div class="tap" id="tap"></div>
+<div class="sub hide" id="sub"></div>
+
+<div class="card" id="intro">
+  <div class="logo" data-logo></div>
+  <h1>Ton cours est<br>en <em>anglais</em>&nbsp;?</h1>
+  <p>Traduis-le en direct,<br>dans ta langue.</p>
+  <div class="flags">🇫🇷 🇪🇸 🇸🇦 🇵🇹 🇩🇪 🇨🇳</div>
+</div>
+
+<div class="card hide" id="cta">
+  <div class="logo" data-logo></div>
+  <h1>Traducteur<br>de <em>Cours</em></h1>
+  <p>Gratuit • Sans inscription<br>Dans ton navigateur</p>
+  <div class="link">souleymane2022.github.io/translater_cours</div>
+</div>
+
+<script>
+  for (const el of document.querySelectorAll('[data-logo]')) el.append(document.getElementById('logo').content.cloneNode(true));
+  const $ = (id) => document.getElementById(id);
+  const SCALE = 1.7795;
+
+  window.stage = {
+    step(badge, title) {
+      const top = $('top');
+      top.classList.add('hide');
+      setTimeout(() => { $('badge').textContent = badge; $('stepTitle').textContent = title; top.classList.remove('hide'); }, 300);
+    },
+    sub(html) { const s = $('sub'); if (!html) { s.classList.add('hide'); return; } s.innerHTML = `<span>${html}</span>`; s.classList.remove('hide'); },
+    card(id, show) { $(id).classList.toggle('hide', !show); },
+    url(text, caret = true) { $('urlText').textContent = text; $('caret').style.display = caret ? 'block' : 'none'; },
+    load(src) { $('app').src = src; },
+    reveal() { $('blank').classList.add('hide'); },
+    // Coordonnées d'un rectangle de l'application → position sur le plateau.
+    toStage(rect) {
+      const vp = $('viewport').getBoundingClientRect();
+      return { x: vp.left + (rect.x + rect.width / 2) * SCALE, y: vp.top + (rect.y + rect.height / 2) * SCALE };
+    },
+    tap(rect) {
+      const p = this.toStage(rect);
+      const t = $('tap');
+      t.style.left = `${p.x}px`; t.style.top = `${p.y}px`;
+      t.classList.remove('go'); void t.offsetWidth; t.classList.add('go');
+    },
+  };
+</script>
+</body>
+</html>

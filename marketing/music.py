@@ -2,7 +2,8 @@
 import sys, wave
 import numpy as np
 
-SR, DUR, BPM = 44100, 36.0, 100
+SR, BPM = 44100, 100
+DUR = float(sys.argv[2]) if len(sys.argv) > 2 else 36.0
 beat = 60 / BPM
 t = np.arange(int(SR * DUR)) / SR
 out = np.zeros_like(t)
