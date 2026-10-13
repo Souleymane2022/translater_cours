@@ -52,7 +52,8 @@ node robustesse-e2e.js
 ```
 
 Reproduit les causes de « ça s'arrête et ça répète le même texte » et vérifie leur correction : en mode
-« Réunion sur ce téléphone », la lecture à voix haute est coupée (sinon le micro la réentend et la traduit en
-boucle) ; une phrase renvoyée deux fois n'est affichée qu'une fois ; une session Gemini Live figée (parole
+« Réunion sur ce téléphone », la voix de la traduction est jouée sans boucle (Gemini Live ignore ce qui est
+déjà dans la langue cible ; les autres moteurs mettent l'écoute en pause pendant que la voix parle, puis la
+reprennent) ; une phrase renvoyée deux fois n'est affichée qu'une fois ; une session Gemini Live figée (parole
 entendue sans réponse pendant 12 s) est remplacée par une session neuve ; la reconnaissance Android qui renvoie
-tout le texte déjà reconnu ne produit que les mots nouveaux. **7/7 réussis.**
+tout le texte déjà reconnu ne produit que les mots nouveaux. **11/11 réussis.**

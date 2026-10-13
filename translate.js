@@ -3,6 +3,7 @@
   'use strict';
 
   const CACHE_LIMIT = 500;
+  const PREPARE_TIMEOUT_MS = 10000; // au-delà, on passe au service suivant (le modèle peut finir de se télécharger)
 
   async function fetchJson(url, signal) {
     const res = await fetch(url, { signal });
@@ -115,7 +116,10 @@
         const p = providers[name];
         if (!(await p.supported(this.src, this.tgt))) continue;
         try {
-          await p.prepare(this.src, this.tgt, onProgress);
+          await Promise.race([
+            p.prepare(this.src, this.tgt, onProgress),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('préparation trop longue')), PREPARE_TIMEOUT_MS)),
+          ]);
           chain.push(name);
         } catch (err) {
           console.warn(`Traduction « ${name} » indisponible :`, err);

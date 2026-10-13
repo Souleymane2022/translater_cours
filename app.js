@@ -49,7 +49,6 @@
     }
     $('whisperSettings').open = $('engine').value === 'whisper';
     $('playerCard').hidden = $('source').value !== 'file';
-    $('speak').disabled = $('source').value === 'speaker';
     const usesGemini = ['gemini', 'live'].includes($('engine').value);
     $('geminiSettings').open = usesGemini;
     $('translator').disabled = usesGemini;
@@ -71,7 +70,8 @@
         + '3) ouvrez Zoom, Meet ou WhatsApp et mettez le son en haut-parleur. La traduction reste affichée au-dessus de la réunion. '
         + 'Certains téléphones coupent le micro des autres applications pendant un appel : dans ce cas, utilisez un 2ᵉ appareil '
         + 'posé à côté, ou rejoignez la réunion depuis un ordinateur. '
-        + '🔇 La lecture à voix haute est désactivée dans ce mode : le micro la réentendrait et la traduirait en boucle.');
+        + '🔊 La voix de la traduction sort du haut-parleur avec la réunion : avec Gemini Live, elle est reconnue et ignorée ; '
+        + 'avec les autres moteurs, l\'écoute fait une courte pause pendant qu\'elle parle.');
     } else if (source === 'file') {
       hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
         + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
@@ -94,7 +94,7 @@
     if (engine === 'gemini') {
       hints.push('Gemini écoute par phrases : la traduction arrive 2 à 4 secondes après chaque pause de l\'orateur.');
     }
-    if (speakEnabled()) hints.push('🎧 Avec la lecture à voix haute, utilisez des écouteurs pour que le micro ne capte pas la voix française.');
+    if (speakEnabled() && $('source').value !== 'speaker') hints.push('🎧 Avec la lecture à voix haute, utilisez des écouteurs pour que le micro ne capte pas la voix française.');
     $('sourceHint').textContent = hints.join(' ');
   }
 
@@ -183,10 +183,17 @@
 
   let pendingUtterances = 0;
 
-  // En mode « Réunion sur ce téléphone », le micro capte le haut-parleur : la voix lue repartirait
-  // vers la traduction et tournerait en boucle. La lecture à voix haute y est donc coupée.
   function speakEnabled() {
-    return $('speak').checked && $('source').value !== 'speaker';
+    return $('speak').checked;
+  }
+
+  // Anti-écho en mode « Réunion sur ce téléphone » : le micro, sans annulation d'écho, entend aussi la voix
+  // de la traduction. Gemini Live la reconnaît (déjà dans la langue cible) et l'ignore ; pour les autres
+  // moteurs, l'écoute est mise en pause pendant que la voix parle, pour ne pas la retraduire en boucle.
+  let echoGuard = false;
+  let voiceQuietUntil = 0;
+  function muteForVoice() {
+    return echoGuard && (('speechSynthesis' in self && speechSynthesis.speaking) || Date.now() < voiceQuietUntil);
   }
 
   function speak(text) {
@@ -203,7 +210,10 @@
     const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
     if (voice) u.voice = voice;
     pendingUtterances++;
-    u.onend = u.onerror = () => { pendingUtterances = Math.max(0, pendingUtterances - 1); };
+    u.onend = u.onerror = () => {
+      pendingUtterances = Math.max(0, pendingUtterances - 1);
+      voiceQuietUntil = Date.now() + 700; // la fin de la voix résonne encore un peu
+    };
     speechSynthesis.speak(u);
   }
 
@@ -331,6 +341,7 @@
     // Sur Android, Chrome renvoie parfois tout le texte déjà reconnu à chaque nouvelle phrase :
     // on ne garde que la partie nouvelle.
     final(transcript) {
+      if (muteForVoice()) return; // c'est la voix de la traduction qui a été entendue
       const text = transcript.trim();
       const previous = this.lastFinal;
       this.lastFinal = text;
@@ -451,6 +462,7 @@
 
     onFrames(frame) {
       if (!this.running) return;
+      if (muteForVoice()) frame = new Float32Array(frame.length); // ne pas réentendre la voix de la traduction
       const seg = this.segment;
       const frameMs = (frame.length / this.ctx.sampleRate) * 1000;
       let sum = 0;
@@ -1010,6 +1022,7 @@
     $('startBtn').disabled = true;
     // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
     const livePlayCtx = engineName === 'live' && speakEnabled() ? new AudioContext() : null;
+    echoGuard = source === 'speaker';
     if (source === 'file') {
       try { prepareFilePlayback(); } catch (err) { $('startBtn').disabled = false; setStatus(err.message, 'error'); return; }
     }
