@@ -31,6 +31,7 @@
         </label>
         <label>Moteur de reconnaissance
           <select id="engine">
+            <option value="gemini">✨ Gemini (le plus précis — clé gratuite)</option>
             <option value="browser">Navigateur (gratuit — Chrome / Edge)</option>
             <option value="whisper">Whisper / API compatible OpenAI (clé requise)</option>
           </select>
@@ -66,6 +67,18 @@
           </select>
         </label>
       </div>
+
+      <details id="geminiSettings">
+        <summary>Réglages Gemini</summary>
+        <p class="hint">Créez une clé gratuite sur <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
+          (compte Google), puis collez-la ici. Gemini fait à la fois la reconnaissance et la traduction.
+          Modèle conseillé : <code>gemini-3.5-flash-lite</code> (rapide) ou <code>gemini-3.8-flash</code> (plus précis).
+          La clé reste dans votre navigateur.</p>
+        <div class="row">
+          <label>Clé API Gemini <input id="geminiKey" type="password" autocomplete="off" placeholder="AIza..."></label>
+          <label>Modèle <input id="geminiModel" type="text" placeholder="gemini-3.5-flash-lite"></label>
+        </div>
+      </details>
 
       <details id="whisperSettings">
         <summary>Réglages Whisper / API (pour l'audio des onglets sur tous les navigateurs)</summary>

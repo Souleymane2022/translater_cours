@@ -29,7 +29,7 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 
 | Situation | Réglage conseillé |
 |---|---|
-| Cours en salle, en anglais | Source : Microphone — Moteur : Navigateur |
+| Cours en salle, en anglais | Source : Microphone — Moteur : Gemini |
 | Réunion Zoom/Meet/Teams **dans le navigateur** | Source : Audio d'un onglet — choisir l'onglet de la réunion |
 | Application **Zoom de bureau** (Windows) | Source : Audio d'un onglet → « Écran entier » + « Partager l'audio du système » |
 | Application Zoom de bureau (Mac) ou téléphone | Source : Microphone (le micro capte le son des haut-parleurs) |
@@ -38,6 +38,14 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 ## ⚙️ Moteurs
 
 ### Reconnaissance vocale
+- **✨ Gemini (recommandé, surtout sur téléphone)** : Gemini écoute chaque phrase et renvoie **en une seule
+  requête** la transcription et une traduction naturelle, qui tient compte du contexte des phrases précédentes.
+  Bien plus précis que la reconnaissance du navigateur, avec un délai de 2 à 4 s après chaque pause.
+  1. Créez une clé gratuite sur <https://aistudio.google.com/apikey> (compte Google).
+  2. Choisissez le moteur « Gemini », ouvrez « Réglages Gemini » et collez la clé.
+  3. Modèle : `gemini-3.5-flash-lite` (rapide, par défaut) ou `gemini-3.8-flash` (plus précis).
+     Les noms changent avec le temps : la liste à jour est sur <https://ai.google.dev/gemini-api/docs/models>.
+  - Le quota gratuit limite le nombre de requêtes par minute : l'application envoie des segments de 4 à 15 s pour rester dessous.
 - **Navigateur (gratuit)** : reconnaissance vocale intégrée à Chrome/Edge. Rapide, avec affichage mot à mot.
   Pour l'audio d'un onglet, les versions récentes de Chrome savent l'utiliser directement ; sinon, utilisez Whisper.
 - **Whisper / API compatible OpenAI** : fonctionne avec n'importe quelle source et sur tous les navigateurs récents.
@@ -73,7 +81,7 @@ python3 -m http.server 8000
 ```
 index.html            Interface
 style.css             Styles (thème clair/sombre, mobile)
-app.js                Reconnaissance vocale, affichage, sous-titres flottants, export
+app.js                Reconnaissance vocale (navigateur, Whisper, Gemini), affichage, sous-titres flottants, export
 translate.js          Services de traduction (Chrome intégré, Google, MyMemory)
 sw.js                 Service worker (installation en application)
 manifest.webmanifest  Manifeste PWA

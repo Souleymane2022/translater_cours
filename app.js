@@ -6,7 +6,7 @@
   const SpeechRecognition = self.SpeechRecognition || self.webkitSpeechRecognition;
 
   const SETTINGS_KEY = 'traducteur-cours-settings';
-  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'speak', 'showOriginal', 'fontSize'];
+  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'speak', 'showOriginal', 'fontSize'];
 
   // Phrases que Whisper « invente » souvent sur du silence ou de la musique.
   const WHISPER_HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|bye\.?|\.+|subtitles by .*|please subscribe.*)$/i;
@@ -24,6 +24,7 @@
     }
     if (!$('apiBase').value) $('apiBase').value = 'https://api.openai.com/v1';
     if (!$('apiModel').value) $('apiModel').value = 'gpt-4o-mini-transcribe';
+    if (!$('geminiModel').value) $('geminiModel').value = 'gemini-3.5-flash-lite';
   }
 
   function saveSettings() {
@@ -43,6 +44,8 @@
       pipWindow.document.body.classList.toggle('hide-original', !$('showOriginal').checked);
     }
     $('whisperSettings').open = $('engine').value === 'whisper';
+    $('geminiSettings').open = $('engine').value === 'gemini';
+    $('translator').disabled = $('engine').value === 'gemini';
     updateHint();
   }
 
@@ -65,6 +68,12 @@
           + 'dans ce cas, utilisez le moteur Whisper (clé gratuite chez Groq).');
       }
     }
+    if (engine === 'browser' && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      hints.push('📱 Sur téléphone, la reconnaissance du navigateur est souvent peu fiable : le moteur Gemini est bien plus précis.');
+    }
+    if (engine === 'gemini') {
+      hints.push('Gemini écoute par phrases : la traduction arrive 2 à 4 secondes après chaque pause de l\'orateur.');
+    }
     if ($('speak').checked) hints.push('🎧 Avec la lecture à voix haute, utilisez des écouteurs pour que le micro ne capte pas la voix française.');
     $('sourceHint').textContent = hints.join(' ');
   }
@@ -84,6 +93,15 @@
       el.textContent = text;
       alertBox.hidden = true;
     }
+  }
+
+  let warningTimer = null;
+  function showWarning(msg) {
+    const alertBox = $('alert');
+    alertBox.textContent = `⚠️ ${msg}`;
+    alertBox.hidden = false;
+    clearTimeout(warningTimer);
+    warningTimer = setTimeout(() => { if (engine) alertBox.hidden = true; }, 6000);
   }
 
   // Sur téléphone/tablette, le partage d'onglet et les sous-titres flottants n'existent pas : on les masque.
@@ -169,10 +187,10 @@
   let lastFinal = { original: '', translation: '' };
   let finalChain = Promise.resolve();
 
-  function onInterim(text) {
+  function onInterim(text, { translate = true } = {}) {
     latestInterim = text;
     showLive(lastFinal.translation, text, true);
-    if (interimTimer) return;
+    if (!translate || interimTimer) return;
     interimTimer = setTimeout(async () => {
       interimTimer = null;
       const text = latestInterim;
@@ -186,13 +204,13 @@
     }, 700);
   }
 
-  function onFinal(text) {
+  function onFinal(text, translation) {
     text = text.trim();
     if (!text) return;
     latestInterim = '';
     if (interimAbort) interimAbort.abort();
     const item = addHistoryItem(text);
-    const pending = translator.translate(text);
+    const pending = translation ? Promise.resolve(translation) : translator.translate(text);
     // Les requêtes partent en parallèle mais l'affichage et la lecture respectent l'ordre.
     finalChain = finalChain.then(async () => {
       try {
@@ -282,90 +300,156 @@
     }
   }
 
-  // ---------- Moteur 2 : Whisper (API compatible OpenAI) ----------
+  // ---------- Moteurs 2 et 3 : envoi de segments audio à une API (Whisper, Gemini) ----------
 
-  class WhisperEngine {
-    constructor({ stream, lang, apiBase, apiKey, model }, handlers) {
+  // Petit processeur audio qui renvoie le son brut (PCM) au fil de l'eau.
+  const PCM_WORKLET = `
+    class PcmTap extends AudioWorkletProcessor {
+      constructor() { super(); this.buf = new Float32Array(2048); this.n = 0; }
+      process(inputs) {
+        const ch = inputs[0] && inputs[0][0];
+        if (ch) {
+          for (let i = 0; i < ch.length; i++) {
+            this.buf[this.n++] = ch[i];
+            if (this.n === this.buf.length) { this.port.postMessage(this.buf.slice()); this.n = 0; }
+          }
+        }
+        return true;
+      }
+    }
+    registerProcessor('pcm-tap', PcmTap);`;
+
+  const WAV_RATE = 16000;
+
+  // Convertit le son en WAV mono 16 kHz : format accepté par Whisper et Gemini sur tous les navigateurs.
+  function encodeWav(samples, inputRate) {
+    const ratio = inputRate / WAV_RATE;
+    const length = Math.floor(samples.length / ratio);
+    const view = new DataView(new ArrayBuffer(44 + length * 2));
+    const writeStr = (o, str) => { for (let i = 0; i < str.length; i++) view.setUint8(o + i, str.charCodeAt(i)); };
+    writeStr(0, 'RIFF'); view.setUint32(4, 36 + length * 2, true); writeStr(8, 'WAVE');
+    writeStr(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, WAV_RATE, true); view.setUint32(28, WAV_RATE * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    writeStr(36, 'data'); view.setUint32(40, length * 2, true);
+    for (let i = 0; i < length; i++) {
+      // Moyenne des échantillons d'origine couverts : rééchantillonnage simple et anti-repliement léger.
+      const from = Math.floor(i * ratio);
+      const to = Math.min(samples.length, Math.floor((i + 1) * ratio));
+      let sum = 0;
+      for (let j = from; j < to; j++) sum += samples[j];
+      const v = Math.max(-1, Math.min(1, sum / Math.max(1, to - from)));
+      view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    }
+    return new Blob([view], { type: 'audio/wav' });
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result).split(',')[1]);
+      r.onerror = () => reject(r.error);
+      r.readAsDataURL(blob);
+    });
+  }
+
+  // Découpe le flux audio aux pauses de l'orateur et envoie chaque segment à transcribe().
+  class SegmentedEngine {
+    constructor({ stream, lang }, handlers, { minMs = 2000, maxMs = 14000 } = {}) {
       this.stream = new MediaStream(stream.getAudioTracks());
-      this.lang = lang.split('-')[0];
-      this.apiBase = apiBase.replace(/\/+$/, '');
-      this.apiKey = apiKey;
-      this.model = model;
+      this.lang = lang;
       this.handlers = handlers;
+      this.minMs = minMs;
+      this.maxMs = maxMs;
       this.running = false;
       this.chain = Promise.resolve();
-      this.mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
-        .find((t) => self.MediaRecorder && MediaRecorder.isTypeSupported(t)) || '';
     }
 
-    start() {
-      if (!self.MediaRecorder) throw new Error('MediaRecorder non pris en charge par ce navigateur.');
+    async start() {
       this.running = true;
       this.ctx = new AudioContext();
+      const url = URL.createObjectURL(new Blob([PCM_WORKLET], { type: 'application/javascript' }));
+      await this.ctx.audioWorklet.addModule(url);
+      URL.revokeObjectURL(url);
       const source = this.ctx.createMediaStreamSource(this.stream);
-      this.analyser = this.ctx.createAnalyser();
-      this.analyser.fftSize = 2048;
-      source.connect(this.analyser);
-      this.buf = new Float32Array(this.analyser.fftSize);
+      const tap = new AudioWorkletNode(this.ctx, 'pcm-tap');
+      const mute = this.ctx.createGain();
+      mute.gain.value = 0;
+      source.connect(tap).connect(mute).connect(this.ctx.destination);
+      tap.port.onmessage = (e) => this.onFrames(e.data);
+      if (this.ctx.state === 'suspended') await this.ctx.resume();
       this.newSegment();
-      // Détection simple de la voix : on coupe un segment dès qu'une pause suit de la parole.
-      this.timer = setInterval(() => this.tick(), 100);
       this.stream.getAudioTracks()[0].addEventListener('ended', () => {
         if (this.running) this.handlers.onFatal('Le partage audio a été arrêté.');
       });
     }
 
     newSegment() {
-      const rec = new MediaRecorder(this.stream, this.mimeType ? { mimeType: this.mimeType } : undefined);
-      const chunks = [];
-      const seg = { rec, startedAt: performance.now(), speechMs: 0, silenceMs: 0 };
-      rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-      rec.onstop = () => {
-        if (seg.discard || !chunks.length) return;
-        this.enqueue(new Blob(chunks, { type: rec.mimeType || this.mimeType }));
-      };
-      rec.start();
-      this.segment = seg;
+      this.segment = { frames: [], durationMs: 0, speechMs: 0, silenceMs: 0 };
     }
 
-    tick() {
+    onFrames(frame) {
       if (!this.running) return;
-      this.analyser.getFloatTimeDomainData(this.buf);
-      let sum = 0;
-      for (const v of this.buf) sum += v * v;
-      const rms = Math.sqrt(sum / this.buf.length);
       const seg = this.segment;
-      if (rms > 0.012) { seg.speechMs += 100; seg.silenceMs = 0; } else { seg.silenceMs += 100; }
+      const frameMs = (frame.length / this.ctx.sampleRate) * 1000;
+      let sum = 0;
+      for (const v of frame) sum += v * v;
+      const rms = Math.sqrt(sum / frame.length);
+      seg.frames.push(frame);
+      seg.durationMs += frameMs;
+      if (rms > 0.01) { seg.speechMs += frameMs; seg.silenceMs = 0; } else { seg.silenceMs += frameMs; }
 
-      const age = performance.now() - seg.startedAt;
-      const pauseAfterSpeech = seg.speechMs >= 400 && seg.silenceMs >= 700 && age >= 2000;
-      if (pauseAfterSpeech || age >= 14000) {
-        seg.discard = seg.speechMs < 400; // rien d'audible : inutile d'envoyer
-        seg.rec.stop();
+      const pauseAfterSpeech = seg.speechMs >= 400 && seg.silenceMs >= 600 && seg.durationMs >= this.minMs;
+      if (pauseAfterSpeech || seg.durationMs >= this.maxMs) {
         this.newSegment();
+        if (seg.speechMs >= 400) this.enqueue(seg); // rien d'audible : inutile d'envoyer
       }
-      this.handlers.onInterim(seg.speechMs > 0 && seg.silenceMs < 700 ? '🎙️ …' : '');
+      this.handlers.onInterim(seg.speechMs > 0 && seg.silenceMs < 600 ? '🎙️ …' : '', { translate: false });
     }
 
-    enqueue(blob) {
-      const request = this.transcribe(blob);
+    enqueue(seg) {
+      const samples = new Float32Array(seg.frames.reduce((n, f) => n + f.length, 0));
+      let offset = 0;
+      for (const f of seg.frames) { samples.set(f, offset); offset += f.length; }
+      const request = this.transcribe(encodeWav(samples, this.ctx.sampleRate));
       this.chain = this.chain.then(async () => {
         try {
-          const text = (await request).trim();
-          if (text && !WHISPER_HALLUCINATIONS.test(text)) this.handlers.onFinal(text);
+          const result = await request;
+          const { original = '', translation } = typeof result === 'string' ? { original: result } : result;
+          const text = original.trim();
+          if (text && !WHISPER_HALLUCINATIONS.test(text)) this.handlers.onFinal(text, translation);
         } catch (err) {
-          this.handlers.onWarning(`Whisper : ${err.message}`);
-          if (/401|403/.test(err.message)) this.handlers.onFatal('Clé API refusée. Vérifiez la clé et l\'URL de l\'API.');
+          if (/HTTP (400|401|403|404)/.test(err.message)) this.handlers.onFatal(this.explainError(err));
+          else this.handlers.onWarning(this.explainError(err));
         }
       });
     }
 
+    explainError(err) {
+      if (/HTTP 429/.test(err.message)) return 'Trop de requêtes (quota gratuit atteint) : quelques phrases peuvent manquer.';
+      if (/HTTP (401|403)/.test(err.message)) return `Clé API refusée. Vérifiez la clé. (${err.message})`;
+      if (/HTTP 404/.test(err.message)) return `Modèle introuvable : vérifiez son nom. (${err.message})`;
+      return err.message;
+    }
+
+    stop() {
+      this.running = false;
+      if (this.ctx) this.ctx.close();
+    }
+  }
+
+  class WhisperEngine extends SegmentedEngine {
+    constructor({ apiBase, apiKey, model, ...rest }, handlers) {
+      super(rest, handlers);
+      this.apiBase = apiBase.replace(/\/+$/, '');
+      this.apiKey = apiKey;
+      this.model = model;
+    }
+
     async transcribe(blob) {
-      const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
       const form = new FormData();
-      form.append('file', blob, `segment.${ext}`);
+      form.append('file', blob, 'segment.wav');
       form.append('model', this.model);
-      form.append('language', this.lang);
+      form.append('language', this.lang.split('-')[0]);
       form.append('response_format', 'json');
       const res = await fetch(`${this.apiBase}/audio/transcriptions`, {
         method: 'POST',
@@ -379,12 +463,61 @@
       }
       return (await res.json()).text || '';
     }
+  }
 
-    stop() {
-      this.running = false;
-      clearInterval(this.timer);
-      if (this.segment && this.segment.rec.state !== 'inactive') this.segment.rec.stop();
-      if (this.ctx) this.ctx.close();
+  // Gemini écoute l'audio et renvoie en une seule requête la transcription ET la traduction.
+  class GeminiEngine extends SegmentedEngine {
+    constructor({ apiKey, model, srcName, tgtName, ...rest }, handlers) {
+      // Segments plus longs : moins de requêtes (quota gratuit) et plus de contexte pour traduire.
+      super(rest, handlers, { minMs: 4000, maxMs: 15000 });
+      this.apiKey = apiKey;
+      this.model = model;
+      this.srcName = srcName;
+      this.tgtName = tgtName;
+      this.context = [];
+    }
+
+    async transcribe(blob) {
+      const previous = this.context.join(' ');
+      const prompt = `You are a professional live interpreter for a lecture or meeting. `
+        + `The audio is the next short excerpt of speech in ${this.srcName}. `
+        + `1) Transcribe exactly what is said. 2) Translate it into natural, fluent ${this.tgtName}, `
+        + `keeping technical terms accurate. `
+        + (previous ? `For context only (already translated, do not repeat it): "${previous}". ` : '')
+        + `If the audio contains no intelligible speech, return empty strings.`;
+      const body = {
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: 'audio/wav', data: await blobToBase64(blob) } },
+          ],
+        }],
+        generationConfig: {
+          temperature: 0.2,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } },
+            required: ['original', 'translation'],
+          },
+        },
+      };
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey }, body: JSON.stringify(body) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`HTTP ${res.status}${data.error ? ` — ${data.error.message}` : ''}`);
+      const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+      const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join('');
+      let result;
+      try { result = JSON.parse(text); } catch { return { original: '', translation: '' }; }
+      if (result.original) {
+        this.context.push(result.original);
+        if (this.context.length > 3) this.context.shift();
+      }
+      return result;
     }
   }
 
@@ -431,14 +564,21 @@
         $('whisperSettings').open = true;
         throw new Error('Entrez une clé API pour le moteur Whisper.');
       }
+      if (engineName === 'gemini' && !$('geminiKey').value.trim()) {
+        $('geminiSettings').open = true;
+        throw new Error('Entrez votre clé API Gemini (gratuite sur aistudio.google.com/apikey).');
+      }
 
-      setStatus('Préparation de la traduction…');
-      const provider = await translator.configure($('translator').value, lang, $('tgtLang').value, (p) => {
-        setStatus(`Téléchargement du modèle de traduction… ${Math.round(p * 100)} %`);
-      });
+      let provider = 'gemini';
+      if (engineName !== 'gemini') {
+        setStatus('Préparation de la traduction…');
+        provider = await translator.configure($('translator').value, lang, $('tgtLang').value, (p) => {
+          setStatus(`Téléchargement du modèle de traduction… ${Math.round(p * 100)} %`);
+        });
+      }
 
       // Le moteur du navigateur gère lui-même le micro ; sinon on capture le flux audio.
-      if (engineName === 'whisper' || source === 'tab') {
+      if (engineName !== 'browser' || source === 'tab') {
         setStatus('Choix de la source audio…');
         mediaStream = await getAudioStream(source);
       }
@@ -446,12 +586,22 @@
       const handlers = {
         onInterim,
         onFinal,
-        onWarning: (msg) => console.warn(msg),
+        onWarning: (msg) => { console.warn(msg); showWarning(msg); },
         onFatal: (msg) => { stop(); setStatus(msg, 'error'); },
       };
 
       if (engineName === 'browser') {
         engine = new BrowserEngine({ lang, track: mediaStream ? mediaStream.getAudioTracks()[0] : null }, handlers);
+      } else if (engineName === 'gemini') {
+        const optionText = (id) => $(id).selectedOptions[0].textContent;
+        engine = new GeminiEngine({
+          stream: mediaStream,
+          lang,
+          apiKey: $('geminiKey').value.trim(),
+          model: $('geminiModel').value.trim() || 'gemini-3.5-flash-lite',
+          srcName: optionText('srcLang'),
+          tgtName: optionText('tgtLang'),
+        }, handlers);
       } else {
         engine = new WhisperEngine({
           stream: mediaStream,
@@ -461,11 +611,11 @@
           model: $('apiModel').value.trim() || 'gpt-4o-mini-transcribe',
         }, handlers);
       }
-      engine.start();
+      await engine.start();
 
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch { /* facultatif */ }
 
-      const providerNames = { builtin: 'Chrome hors ligne', google: 'Google', mymemory: 'MyMemory' };
+      const providerNames = { gemini: 'Gemini', builtin: 'Chrome hors ligne', google: 'Google', mymemory: 'MyMemory' };
       setStatus(`Écoute en cours — traduction : ${providerNames[provider]}`, 'listening');
       showLive('', '', false);
       $('stopBtn').disabled = false;
