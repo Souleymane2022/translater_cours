@@ -44,6 +44,11 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand h1 { font-size: 1.2rem; margin: 0; }
 .status {
+  flex-shrink: 0;
+  max-width: 50%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: .9rem;
   padding: 4px 10px;
   border-radius: 999px;
@@ -51,6 +56,14 @@ body {
 }
 .status.listening::before { content: "● "; color: #f87171; animation: blink 1s infinite; }
 .status.error { background: var(--danger); }
+.alert {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+.alert[hidden], button[hidden] { display: none; }
 @keyframes blink { 50% { opacity: .2; } }
 
 main {

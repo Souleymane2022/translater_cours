@@ -71,10 +71,30 @@
 
   // ---------- Affichage ----------
 
+  // Les erreurs s'affichent dans un bandeau lisible ; la pastille d'état reste courte.
   function setStatus(text, kind) {
     const el = $('status');
-    el.textContent = text;
+    const alertBox = $('alert');
     el.className = `status${kind ? ` ${kind}` : ''}`;
+    if (kind === 'error') {
+      el.textContent = 'Erreur';
+      alertBox.textContent = `⚠️ ${text}`;
+      alertBox.hidden = false;
+    } else {
+      el.textContent = text;
+      alertBox.hidden = true;
+    }
+  }
+
+  // Sur téléphone/tablette, le partage d'onglet et les sous-titres flottants n'existent pas : on les masque.
+  function adaptToDevice() {
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
+      const tab = $('source').querySelector('option[value="tab"]');
+      tab.disabled = true;
+      tab.textContent = '🖥️ Audio d\'un onglet (sur ordinateur uniquement)';
+      $('source').value = 'mic';
+    }
+    if (!('documentPictureInPicture' in self)) $('pipBtn').hidden = true;
   }
 
   function stageDoc() { return pipWindow ? pipWindow.document : document; }
@@ -522,6 +542,7 @@
   // ---------- Initialisation ----------
 
   loadSettings();
+  adaptToDevice();
   applyDisplaySettings();
   for (const id of SETTING_FIELDS) {
     $(id).addEventListener('change', () => { saveSettings(); applyDisplaySettings(); });
