@@ -17,7 +17,9 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 - **Plein écran**, taille du texte réglable, affichage optionnel du texte anglais original.
 - **Historique** horodaté et **export** en fichier `.txt` (pratique pour réviser le cours).
 - Empêche l'écran de se mettre en veille pendant l'écoute.
-- Autres langues possibles (espagnol, allemand, arabe, chinois → français, etc.).
+- **16 langues parlées** (anglais, français, espagnol, portugais, allemand, italien, arabe, russe, turc, hindi, chinois, japonais…)
+  et **14 langues de traduction** (français, anglais, arabe, espagnol, portugais, allemand, italien, swahili, haoussa,
+  turc, russe, hindi, chinois, japonais). L'arabe s'affiche de droite à gauche.
 
 ## 🚀 Utilisation
 

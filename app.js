@@ -150,9 +150,11 @@
     time.textContent = now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const tr = document.createElement('div');
     tr.className = 'tr';
+    tr.dir = 'auto';
     tr.textContent = '…';
     const src = document.createElement('div');
     src.className = 'src';
+    src.dir = 'auto';
     src.textContent = original;
     li.append(time, tr, src);
     const list = $('history');
@@ -180,7 +182,7 @@
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
     u.rate = 1.1;
-    const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang));
+    const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
     if (voice) u.voice = voice;
     pendingUtterances++;
     u.onend = u.onerror = () => { pendingUtterances = Math.max(0, pendingUtterances - 1); };
@@ -896,7 +898,7 @@
           playCtx: livePlayCtx,
         }, handlers);
       } else if (engineName === 'gemini') {
-        const optionText = (id) => $(id).selectedOptions[0].textContent;
+        const optionText = (id) => $(id).selectedOptions[0].dataset.name || $(id).selectedOptions[0].textContent;
         engine = new GeminiEngine({
           stream: mediaStream,
           lang,

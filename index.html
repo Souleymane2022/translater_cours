@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#1d4ed8">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
   <header class="topbar">
@@ -41,22 +41,40 @@
       <div class="row">
         <label>Langue parlée
           <select id="srcLang">
-            <option value="en-US">Anglais (États-Unis)</option>
-            <option value="en-GB">Anglais (Royaume-Uni)</option>
-            <option value="en-IN">Anglais (Inde)</option>
-            <option value="en-AU">Anglais (Australie)</option>
-            <option value="es-ES">Espagnol</option>
-            <option value="de-DE">Allemand</option>
-            <option value="ar-SA">Arabe</option>
-            <option value="zh-CN">Chinois</option>
+            <option value="en-US" data-name="English">Anglais (États-Unis)</option>
+            <option value="en-GB" data-name="English">Anglais (Royaume-Uni)</option>
+            <option value="en-NG" data-name="English">Anglais (Nigeria)</option>
+            <option value="en-IN" data-name="English">Anglais (Inde)</option>
+            <option value="en-AU" data-name="English">Anglais (Australie)</option>
+            <option value="fr-FR" data-name="French">Français</option>
+            <option value="es-ES" data-name="Spanish">Espagnol</option>
+            <option value="pt-BR" data-name="Portuguese">Portugais</option>
+            <option value="de-DE" data-name="German">Allemand</option>
+            <option value="it-IT" data-name="Italian">Italien</option>
+            <option value="ar-SA" data-name="Arabic">Arabe</option>
+            <option value="ru-RU" data-name="Russian">Russe</option>
+            <option value="tr-TR" data-name="Turkish">Turc</option>
+            <option value="hi-IN" data-name="Hindi">Hindi</option>
+            <option value="zh-CN" data-name="Chinese (Mandarin)">Chinois</option>
+            <option value="ja-JP" data-name="Japanese">Japonais</option>
           </select>
         </label>
         <label>Traduire vers
           <select id="tgtLang">
-            <option value="fr">Français</option>
-            <option value="en">Anglais</option>
-            <option value="ar">Arabe</option>
-            <option value="es">Espagnol</option>
+            <option value="fr" data-name="French">Français</option>
+            <option value="en" data-name="English">Anglais</option>
+            <option value="ar" data-name="Arabic">Arabe</option>
+            <option value="es" data-name="Spanish">Espagnol</option>
+            <option value="pt" data-name="Portuguese">Portugais</option>
+            <option value="de" data-name="German">Allemand</option>
+            <option value="it" data-name="Italian">Italien</option>
+            <option value="sw" data-name="Swahili">Swahili</option>
+            <option value="ha" data-name="Hausa">Haoussa</option>
+            <option value="tr" data-name="Turkish">Turc</option>
+            <option value="ru" data-name="Russian">Russe</option>
+            <option value="hi" data-name="Hindi">Hindi</option>
+            <option value="zh-CN" data-name="Simplified Chinese">Chinois</option>
+            <option value="ja" data-name="Japanese">Japonais</option>
           </select>
         </label>
         <label>Service de traduction
@@ -114,8 +132,8 @@
 
     <section id="stage" class="stage card">
       <div id="live" class="live">
-        <p class="live-tr" id="liveTr">La traduction apparaîtra ici…</p>
-        <p class="live-src" id="liveSrc"></p>
+        <p class="live-tr" id="liveTr" dir="auto">La traduction apparaîtra ici…</p>
+        <p class="live-src" id="liveSrc" dir="auto"></p>
       </div>
     </section>
 
@@ -129,7 +147,7 @@
     Fonctionne au mieux dans Google Chrome ou Microsoft Edge. Aucune donnée n'est stockée sur un serveur.
   </footer>
 
-  <script src="translate.js?v=7"></script>
-  <script src="app.js?v=7"></script>
+  <script src="translate.js?v=8"></script>
+  <script src="app.js?v=8"></script>
 </body>
 </html>
