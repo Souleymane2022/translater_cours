@@ -49,6 +49,7 @@
     }
     $('whisperSettings').open = $('engine').value === 'whisper';
     $('playerCard').hidden = $('source').value !== 'file';
+    $('speak').disabled = $('source').value === 'speaker';
     const usesGemini = ['gemini', 'live'].includes($('engine').value);
     $('geminiSettings').open = usesGemini;
     $('translator').disabled = usesGemini;
@@ -69,7 +70,8 @@
       hints.push('📱 Réunion sur ce téléphone : 1) appuyez sur Démarrer ici, 2) activez « Sous-titres flottants », '
         + '3) ouvrez Zoom, Meet ou WhatsApp et mettez le son en haut-parleur. La traduction reste affichée au-dessus de la réunion. '
         + 'Certains téléphones coupent le micro des autres applications pendant un appel : dans ce cas, utilisez un 2ᵉ appareil '
-        + 'posé à côté, ou rejoignez la réunion depuis un ordinateur.');
+        + 'posé à côté, ou rejoignez la réunion depuis un ordinateur. '
+        + '🔇 La lecture à voix haute est désactivée dans ce mode : le micro la réentendrait et la traduirait en boucle.');
     } else if (source === 'file') {
       hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
         + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
@@ -92,7 +94,7 @@
     if (engine === 'gemini') {
       hints.push('Gemini écoute par phrases : la traduction arrive 2 à 4 secondes après chaque pause de l\'orateur.');
     }
-    if ($('speak').checked) hints.push('🎧 Avec la lecture à voix haute, utilisez des écouteurs pour que le micro ne capte pas la voix française.');
+    if (speakEnabled()) hints.push('🎧 Avec la lecture à voix haute, utilisez des écouteurs pour que le micro ne capte pas la voix française.');
     $('sourceHint').textContent = hints.join(' ');
   }
 
@@ -181,8 +183,14 @@
 
   let pendingUtterances = 0;
 
+  // En mode « Réunion sur ce téléphone », le micro capte le haut-parleur : la voix lue repartirait
+  // vers la traduction et tournerait en boucle. La lecture à voix haute y est donc coupée.
+  function speakEnabled() {
+    return $('speak').checked && $('source').value !== 'speaker';
+  }
+
   function speak(text) {
-    if (!$('speak').checked || !('speechSynthesis' in self) || !text) return;
+    if (!speakEnabled() || !('speechSynthesis' in self) || !text) return;
     // Si on prend trop de retard sur l'orateur, on abandonne les anciennes phrases.
     if (pendingUtterances > 2) {
       speechSynthesis.cancel();
@@ -225,9 +233,24 @@
     }, 700);
   }
 
+  // Dernières phrases reçues : une phrase identique reçue à nouveau dans les 30 s est ignorée
+  // (reprise de session, reconnaissance Android qui renvoie tout le texte, écho…).
+  const recentFinals = [];
+  const normalize = (t) => (t || '').toLowerCase().replace(/[\s.,;:!?¿¡…'"«»“”-]+/g, ' ').trim();
+
+  function isRepeat(text, translation) {
+    const key = normalize(translation || text);
+    const now = Date.now();
+    while (recentFinals.length && now - recentFinals[0].at > 30000) recentFinals.shift();
+    if (key && recentFinals.some((f) => f.key === key)) return true;
+    recentFinals.push({ key, at: now });
+    if (recentFinals.length > 5) recentFinals.shift();
+    return false;
+  }
+
   function onFinal(text, translation, { spoken = false } = {}) {
     text = text.trim();
-    if (!text) return;
+    if (!text || isRepeat(text, translation)) return;
     latestInterim = '';
     if (interimAbort) interimAbort.abort();
     const item = addHistoryItem(text);
@@ -264,11 +287,12 @@
       this.rec.interimResults = true;
       this.rec.maxAlternatives = 1;
 
+      this.lastFinal = '';
       this.rec.onresult = (e) => {
         let interim = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const r = e.results[i];
-          if (r.isFinal) this.handlers.onFinal(r[0].transcript);
+          if (r.isFinal) this.final(r[0].transcript);
           else interim += r[0].transcript;
         }
         if (interim) this.handlers.onInterim(interim);
@@ -297,10 +321,22 @@
           this.handlers.onFatal('Le partage audio a été arrêté.');
           return;
         }
+        this.lastFinal = '';
         setTimeout(() => this.running && this.launch(), 250);
       };
 
       this.launch();
+    }
+
+    // Sur Android, Chrome renvoie parfois tout le texte déjà reconnu à chaque nouvelle phrase :
+    // on ne garde que la partie nouvelle.
+    final(transcript) {
+      const text = transcript.trim();
+      const previous = this.lastFinal;
+      this.lastFinal = text;
+      if (!text || text === previous) return;
+      const fresh = previous && text.toLowerCase().startsWith(previous.toLowerCase()) ? text.slice(previous.length).trim() : text;
+      if (fresh) this.handlers.onFinal(fresh);
     }
 
     launch() {
@@ -608,6 +644,7 @@
 
   const LIVE_INPUT_RATE = 16000;
   const LIVE_OUTPUT_RATE = 24000;
+  const LIVE_FROZEN_MS = 12000; // parole entendue sans aucune réponse avant de changer de session
 
   // Rééchantillonne le flux du micro vers 16 kHz, en gardant l'état d'un bloc à l'autre.
   class Resampler {
@@ -765,6 +802,7 @@
 
     onFrames(frame) {
       if (!this.running) return;
+      this.watchdog(frame);
       this.pending.push(this.resampler.push(frame));
       const total = this.pending.reduce((n, a) => n + a.length, 0);
       if (total < LIVE_INPUT_RATE / 10) return; // envoi toutes les ~100 ms
@@ -780,6 +818,21 @@
       }));
     }
 
+    // Gemini Live peut se figer sans erreur : s'il entend de la parole pendant 12 s sans rien renvoyer,
+    // on abandonne cette session et on en ouvre une neuve (sans reprise, qui resterait figée).
+    watchdog(frame) {
+      if (!this.ready) { this.speechWithoutReply = 0; return; }
+      let sum = 0;
+      for (const v of frame) sum += v * v;
+      if (Math.sqrt(sum / frame.length) > 0.01) this.speechWithoutReply = (this.speechWithoutReply || 0) + (frame.length / this.ctx.sampleRate) * 1000;
+      if (this.speechWithoutReply > LIVE_FROZEN_MS) {
+        this.speechWithoutReply = 0;
+        this.resumeHandle = null;
+        this.handlers.onWarning('Gemini ne répondait plus : nouvelle session ouverte.');
+        if (this.ws) this.ws.close(4000, 'session figée');
+      }
+    }
+
     onMessage(msg) {
       this.lastMessageAt = performance.now();
       if (msg.sessionResumptionUpdate && msg.sessionResumptionUpdate.resumable && msg.sessionResumptionUpdate.newHandle) {
@@ -789,6 +842,7 @@
 
       const sc = msg.serverContent;
       if (!sc) return;
+      if (sc.inputTranscription || sc.outputTranscription || sc.modelTurn) this.speechWithoutReply = 0;
       if (sc.inputTranscription && sc.inputTranscription.text) this.original += sc.inputTranscription.text;
       if (sc.outputTranscription && sc.outputTranscription.text) this.translation += sc.outputTranscription.text;
       if (this.playAudio && sc.modelTurn && sc.modelTurn.parts) {
@@ -905,7 +959,7 @@
     }
     filePlayer.ctx.resume();
     // Avec la voix de l'interprète, le son d'origine est baissé pour qu'on l'entende bien.
-    filePlayer.gain.gain.value = $('speak').checked && $('engine').value === 'live' ? 0.3 : 1;
+    filePlayer.gain.gain.value = speakEnabled() && $('engine').value === 'live' ? 0.3 : 1;
     filePlayer.dest = filePlayer.ctx.createMediaStreamDestination();
     filePlayer.node.connect(filePlayer.dest);
     player.play().catch(() => {});
@@ -955,7 +1009,7 @@
     const lang = $('srcLang').value;
     $('startBtn').disabled = true;
     // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
-    const livePlayCtx = engineName === 'live' && $('speak').checked ? new AudioContext() : null;
+    const livePlayCtx = engineName === 'live' && speakEnabled() ? new AudioContext() : null;
     if (source === 'file') {
       try { prepareFilePlayback(); } catch (err) { $('startBtn').disabled = false; setStatus(err.message, 'error'); return; }
     }

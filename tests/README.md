@@ -44,3 +44,15 @@ Whisper local → Google Traduction → « Bonjour, aujourd'hui nous allons étu
 automatique en fin de fichier ; l'ouverture du micro sans annulation d'écho en mode « Réunion sur ce téléphone » ;
 les sous-titres flottants par Picture-in-Picture vidéo (texte arabe de droite à gauche) ; la réception d'un fichier
 partagé depuis une autre application. **12/12 réussis.**
+
+## Robustesse (`robustesse-e2e.js`)
+
+```bash
+node robustesse-e2e.js
+```
+
+Reproduit les causes de « ça s'arrête et ça répète le même texte » et vérifie leur correction : en mode
+« Réunion sur ce téléphone », la lecture à voix haute est coupée (sinon le micro la réentend et la traduit en
+boucle) ; une phrase renvoyée deux fois n'est affichée qu'une fois ; une session Gemini Live figée (parole
+entendue sans réponse pendant 12 s) est remplacée par une session neuve ; la reconnaissance Android qui renvoie
+tout le texte déjà reconnu ne produit que les mots nouveaux. **7/7 réussis.**
