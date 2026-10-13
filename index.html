@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#1d4ed8">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
   <header class="topbar">
@@ -25,7 +25,9 @@
       <div class="row">
         <label>Source audio
           <select id="source">
-            <option value="mic">🎤 Microphone (salle de cours, haut-parleurs)</option>
+            <option value="mic">🎤 Micro : cours, conférence ou réunion en salle</option>
+            <option value="speaker">🔈 Réunion sur ce téléphone (Zoom, Meet, WhatsApp en haut-parleur)</option>
+            <option value="file">📁 Fichier audio ou vidéo (cours enregistré, message vocal…)</option>
             <option value="tab">🖥️ Audio d'un onglet / de l'écran (Zoom web, Meet, Teams, YouTube…)</option>
           </select>
         </label>
@@ -122,12 +124,22 @@
       <div class="row buttons">
         <button id="startBtn" class="primary">▶ Démarrer la traduction</button>
         <button id="stopBtn" class="danger" disabled>■ Arrêter</button>
-        <button id="pipBtn" title="Fenêtre flottante au-dessus de Zoom / Teams">🪟 Sous-titres flottants</button>
+        <button id="pipBtn" title="Fenêtre flottante au-dessus de Zoom, Meet, Teams ou WhatsApp">🪟 Sous-titres flottants</button>
         <button id="fullBtn">⛶ Plein écran</button>
         <button id="exportBtn">💾 Exporter</button>
         <button id="clearBtn">🗑 Effacer</button>
       </div>
       <p class="hint" id="sourceHint"></p>
+    </section>
+
+    <section id="playerCard" class="card player-card" hidden>
+      <div class="row file-row">
+        <label class="file-pick">📁 Choisir un fichier audio ou vidéo
+          <input type="file" id="fileInput" accept="audio/*,video/*">
+        </label>
+        <span class="hint" id="fileName">Aucun fichier choisi</span>
+      </div>
+      <video id="player" controls playsinline preload="metadata"></video>
     </section>
 
     <section id="stage" class="stage card">
@@ -147,7 +159,7 @@
     Fonctionne au mieux dans Google Chrome ou Microsoft Edge. Aucune donnée n'est stockée sur un serveur.
   </footer>
 
-  <script src="translate.js?v=9"></script>
-  <script src="app.js?v=9"></script>
+  <script src="translate.js?v=11"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

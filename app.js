@@ -48,6 +48,7 @@
       pipWindow.document.body.classList.toggle('hide-original', !$('showOriginal').checked);
     }
     $('whisperSettings').open = $('engine').value === 'whisper';
+    $('playerCard').hidden = $('source').value !== 'file';
     const usesGemini = ['gemini', 'live'].includes($('engine').value);
     $('geminiSettings').open = usesGemini;
     $('translator').disabled = usesGemini;
@@ -64,6 +65,14 @@
     if (source === 'mic') {
       hints.push('Placez l\'appareil près de l\'enseignant ou des haut-parleurs. Pour Zoom/Teams sur ce même ordinateur, '
         + 'le micro capte le son des haut-parleurs : baissez le volume du micro dans Zoom (ou coupez-le) pendant la traduction.');
+    } else if (source === 'speaker') {
+      hints.push('📱 Réunion sur ce téléphone : 1) appuyez sur Démarrer ici, 2) activez « Sous-titres flottants », '
+        + '3) ouvrez Zoom, Meet ou WhatsApp et mettez le son en haut-parleur. La traduction reste affichée au-dessus de la réunion. '
+        + 'Certains téléphones coupent le micro des autres applications pendant un appel : dans ce cas, utilisez un 2ᵉ appareil '
+        + 'posé à côté, ou rejoignez la réunion depuis un ordinateur.');
+    } else if (source === 'file') {
+      hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
+        + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
     } else {
       hints.push('Une fenêtre va s\'ouvrir : choisissez l\'onglet de la réunion (Zoom web, Google Meet, Teams web, YouTube…) '
         + 'et cochez « Partager l\'audio de l\'onglet ». Pour l\'application Zoom de bureau, choisissez « Écran entier » '
@@ -77,8 +86,8 @@
       hints.push('📱 Sur téléphone, la reconnaissance du navigateur est souvent peu fiable : le moteur Gemini Live est bien plus précis.');
     }
     if (engine === 'live') {
-      hints.push('⚡ Traduction simultanée : le texte français s\'écrit pendant que l\'orateur parle. '
-        + 'Cochez « Lire la traduction à voix haute » pour entendre une voix d\'interprète en français.');
+      hints.push('⚡ Traduction simultanée : la traduction s\'écrit pendant que l\'orateur parle. '
+        + 'Cochez « Lire la traduction à voix haute » pour entendre une voix d\'interprète.');
     }
     if (engine === 'gemini') {
       hints.push('Gemini écoute par phrases : la traduction arrive 2 à 4 secondes après chaque pause de l\'orateur.');
@@ -121,7 +130,7 @@
       tab.textContent = '🖥️ Audio d\'un onglet (sur ordinateur uniquement)';
       $('source').value = 'mic';
     }
-    if (!('documentPictureInPicture' in self)) $('pipBtn').hidden = true;
+    if (!('documentPictureInPicture' in self) && !videoPipSupported()) $('pipBtn').hidden = true;
   }
 
   function stageDoc() { return pipWindow ? pipWindow.document : document; }
@@ -134,6 +143,7 @@
     tr.textContent = lastChars(translation, 400);
     tr.classList.toggle('interim', !!interim);
     src.textContent = lastChars(original, 300);
+    videoPip.text = [tr.textContent, src.textContent];
   }
 
   function lastChars(text, max) {
@@ -302,6 +312,11 @@
       }
     }
 
+    // Fin d'un fichier : on laisse la reconnaissance rendre ses derniers mots.
+    finish() {
+      return new Promise((r) => setTimeout(r, 1500));
+    }
+
     stop() {
       this.running = false;
       if (this.rec) {
@@ -440,6 +455,14 @@
       if (/HTTP (401|403)/.test(err.message)) return `Clé API refusée. Vérifiez la clé. (${err.message})`;
       if (/HTTP 404/.test(err.message)) return `Modèle introuvable : vérifiez son nom. (${err.message})`;
       return err.message;
+    }
+
+    // Fin d'un fichier : on envoie le segment en cours et on attend toutes les réponses.
+    async finish() {
+      const seg = this.segment;
+      this.newSegment();
+      if (seg && seg.speechMs >= 400) this.enqueue(seg);
+      await this.chain;
     }
 
     stop() {
@@ -758,6 +781,7 @@
     }
 
     onMessage(msg) {
+      this.lastMessageAt = performance.now();
       if (msg.sessionResumptionUpdate && msg.sessionResumptionUpdate.resumable && msg.sessionResumptionUpdate.newHandle) {
         this.resumeHandle = msg.sessionResumptionUpdate.newHandle;
       }
@@ -807,6 +831,16 @@
       this.playAt += buffer.duration;
     }
 
+    // Fin d'un fichier : on attend que Gemini ait fini de traduire (2,5 s sans message, 20 s au plus).
+    async finish() {
+      const t0 = performance.now();
+      this.lastMessageAt = this.lastMessageAt || t0;
+      while (performance.now() - this.lastMessageAt < 2500 && performance.now() - t0 < 20000) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      this.flush();
+    }
+
     stop() {
       this.running = false;
       this.ready = false;
@@ -829,6 +863,14 @@
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
     }
+    if (source === 'speaker') {
+      // Sans annulation d'écho ni réduction de bruit : ces filtres effacent justement le son
+      // du haut-parleur (la réunion Zoom, Meet ou WhatsApp qui se déroule sur ce téléphone).
+      return navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true },
+      });
+    }
+    if (source === 'file') return fileStream();
     if (!navigator.mediaDevices.getDisplayMedia) {
       throw new Error('Le partage d\'onglet n\'est pas disponible sur cet appareil (utilisez un ordinateur avec Chrome ou Edge).');
     }
@@ -845,6 +887,67 @@
     return stream;
   }
 
+  // ---------- Fichier audio ou vidéo ----------
+
+  // Le son du lecteur passe par Web Audio : on l'entend, et le moteur reçoit le même flux.
+  // createMediaElementSource ne peut être appelé qu'une fois par élément : le graphe est conservé.
+  const filePlayer = { ctx: null, node: null, gain: null, dest: null };
+
+  // Appelé pendant le clic sur « Démarrer » (le navigateur exige un geste pour lancer le son).
+  function prepareFilePlayback() {
+    const player = $('player');
+    if (!player.getAttribute('src')) throw new Error('Choisissez d\'abord un fichier audio ou vidéo.');
+    if (!filePlayer.ctx) {
+      filePlayer.ctx = new AudioContext();
+      filePlayer.node = filePlayer.ctx.createMediaElementSource(player);
+      filePlayer.gain = filePlayer.ctx.createGain();
+      filePlayer.node.connect(filePlayer.gain).connect(filePlayer.ctx.destination);
+    }
+    filePlayer.ctx.resume();
+    // Avec la voix de l'interprète, le son d'origine est baissé pour qu'on l'entende bien.
+    filePlayer.gain.gain.value = $('speak').checked && $('engine').value === 'live' ? 0.3 : 1;
+    filePlayer.dest = filePlayer.ctx.createMediaStreamDestination();
+    filePlayer.node.connect(filePlayer.dest);
+    player.play().catch(() => {});
+  }
+
+  function fileStream() {
+    return filePlayer.dest.stream;
+  }
+
+  function releaseFilePlayback() {
+    if (!filePlayer.dest) return;
+    filePlayer.node.disconnect(filePlayer.dest);
+    filePlayer.dest = null;
+    $('player').pause();
+  }
+
+  function setPlayerFile(blob, name) {
+    const player = $('player');
+    if (player.src) URL.revokeObjectURL(player.src);
+    player.src = URL.createObjectURL(blob);
+    player.classList.toggle('audio-only', (blob.type || '').startsWith('audio/'));
+    $('fileName').textContent = name;
+    $('source').value = 'file';
+    saveSettings();
+    applyDisplaySettings();
+  }
+
+  // Fichier reçu par « Partager → Traducteur de Cours » (voir sw.js).
+  async function loadSharedFile() {
+    if (!new URLSearchParams(location.search).has('shared') || !('caches' in self)) return;
+    history.replaceState(null, '', location.pathname);
+    try {
+      const cache = await caches.open('traducteur-cours-partage');
+      const res = await cache.match('fichier-partage');
+      if (!res) return;
+      const name = decodeURIComponent(res.headers.get('X-File-Name') || 'fichier partagé');
+      setPlayerFile(await res.blob(), name);
+      await cache.delete('fichier-partage');
+      setStatus(`Fichier reçu : ${name} — appuyez sur Démarrer`);
+    } catch { /* stockage indisponible */ }
+  }
+
   async function start() {
     saveSettings();
     const source = $('source').value;
@@ -853,6 +956,9 @@
     $('startBtn').disabled = true;
     // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
     const livePlayCtx = engineName === 'live' && $('speak').checked ? new AudioContext() : null;
+    if (source === 'file') {
+      try { prepareFilePlayback(); } catch (err) { $('startBtn').disabled = false; setStatus(err.message, 'error'); return; }
+    }
 
     try {
       if (engineName === 'browser' && !SpeechRecognition) {
@@ -876,7 +982,7 @@
       }
 
       // Le moteur du navigateur gère lui-même le micro ; sinon on capture le flux audio.
-      if (engineName !== 'browser' || source === 'tab') {
+      if (engineName !== 'browser' || source !== 'mic') {
         setStatus('Choix de la source audio…');
         mediaStream = await getAudioStream(source);
       }
@@ -939,6 +1045,7 @@
     engine = null;
     if (mediaStream) mediaStream.getTracks().forEach((t) => t.stop());
     mediaStream = null;
+    releaseFilePlayback();
     if (wakeLock) wakeLock.release().catch(() => {});
     wakeLock = null;
     clearTimeout(interimTimer);
@@ -956,7 +1063,8 @@
   async function togglePip() {
     if (pipWindow) { pipWindow.close(); return; }
     if (!('documentPictureInPicture' in self)) {
-      alert('Les sous-titres flottants nécessitent Chrome ou Edge (version 116+) sur ordinateur. '
+      if (videoPipSupported()) { toggleVideoPip().catch((err) => showWarning(`Sous-titres flottants : ${err.message}`)); return; }
+      alert('Les sous-titres flottants ne sont pas disponibles dans ce navigateur. Essayez Chrome. '
         + 'Astuce : sinon, placez cette fenêtre à côté de la réunion.');
       return;
     }
@@ -979,6 +1087,73 @@
       placeholder.replaceWith(stage);
       pipWindow = null;
     });
+  }
+
+  // ---------- Sous-titres flottants sur téléphone (Picture-in-Picture vidéo) ----------
+  // Android et iOS n'ont pas de fenêtre flottante pour une page web, mais en ont une pour les vidéos :
+  // la traduction est dessinée dans un canevas filmé en continu, et cette « vidéo » flotte au-dessus
+  // de Zoom, Meet ou WhatsApp.
+
+  const videoPip = { video: null, canvas: null, timer: null, text: ['', ''] };
+
+  function videoPipSupported() {
+    return !!(document.pictureInPictureEnabled && 'requestPictureInPicture' in HTMLVideoElement.prototype
+      && 'captureStream' in HTMLCanvasElement.prototype);
+  }
+
+  function wrapLines(g, text, width) {
+    const lines = [];
+    let line = '';
+    for (const word of text.split(/\s+/).filter(Boolean)) {
+      const test = line ? `${line} ${word}` : word;
+      if (g.measureText(test).width > width && line) { lines.push(line); line = word; } else line = test;
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function drawVideoPip() {
+    const c = videoPip.canvas;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0b1020';
+    g.fillRect(0, 0, c.width, c.height);
+    const [translation, original] = videoPip.text;
+    // Sens d'écriture propre à chaque texte (arabe de droite à gauche, anglais de gauche à droite).
+    const writeDir = (text) => {
+      const rtl = /[\u0590-\u08FF]/.test(text);
+      g.direction = rtl ? 'rtl' : 'ltr';
+      g.textAlign = rtl ? 'right' : 'left';
+      return rtl ? c.width - 28 : 28;
+    };
+    g.font = '600 38px system-ui, sans-serif';
+    g.fillStyle = '#ffffff';
+    const x = writeDir(translation);
+    wrapLines(g, translation || '…', c.width - 56).slice(-3).forEach((l, i) => g.fillText(l, x, 58 + i * 48));
+    if (original && $('showOriginal').checked) {
+      g.font = 'italic 24px system-ui, sans-serif';
+      g.fillStyle = '#9ca3af';
+      g.fillText(wrapLines(g, original, c.width - 56).slice(-1)[0] || '', writeDir(original), c.height - 22);
+    }
+  }
+
+  async function toggleVideoPip() {
+    if (document.pictureInPictureElement) { await document.exitPictureInPicture(); return; }
+    if (!videoPip.video) {
+      videoPip.canvas = Object.assign(document.createElement('canvas'), { width: 720, height: 240 });
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;left:0';
+      video.srcObject = videoPip.canvas.captureStream(5);
+      video.addEventListener('leavepictureinpicture', () => { clearInterval(videoPip.timer); videoPip.timer = null; });
+      document.body.append(video);
+      videoPip.video = video;
+    }
+    drawVideoPip();
+    clearInterval(videoPip.timer);
+    videoPip.timer = setInterval(drawVideoPip, 250);
+    await videoPip.video.play();
+    await videoPip.video.requestPictureInPicture();
   }
 
   // ---------- Export ----------
@@ -1007,6 +1182,23 @@
     $(id).addEventListener('change', () => { saveSettings(); applyDisplaySettings(); });
   }
   $('fontSize').addEventListener('input', applyDisplaySettings);
+  $('fileInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) setPlayerFile(file, file.name);
+  });
+  // Fin du fichier : on attend la traduction des dernières phrases, puis on arrête.
+  $('player').addEventListener('ended', async () => {
+    if (!engine || $('source').value !== 'file') return;
+    const current = engine;
+    setStatus('Fin de la lecture — traduction des dernières phrases…', 'listening');
+    await new Promise((r) => setTimeout(r, 700)); // le silence de fin termine la phrase en cours
+    await current.finish();
+    await finalChain;
+    if (engine !== current) return;
+    stop();
+    setStatus('Lecture terminée — la traduction complète est dans l\'historique');
+  });
+  loadSharedFile();
   $('startBtn').addEventListener('click', start);
   $('stopBtn').addEventListener('click', stop);
   $('pipBtn').addEventListener('click', togglePip);

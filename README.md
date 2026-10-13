@@ -12,6 +12,14 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 - **Deux sources audio**
   - 🎤 **Microphone** : pour un cours en salle (posez le téléphone/PC près du professeur) ou pour capter les haut-parleurs.
   - 🖥️ **Audio d'un onglet / de l'écran** : capte directement le son de Zoom web, Meet, Teams web, YouTube… sans micro.
+- **Sur téléphone, même pendant une réunion** :
+  - 🔈 **« Réunion sur ce téléphone »** : capte le son du haut-parleur pendant Zoom, Meet ou WhatsApp
+    (le micro est ouvert sans les filtres qui effacent ce son) ;
+  - 🪟 **sous-titres flottants** au-dessus de Zoom, Meet ou WhatsApp, grâce à l'« image dans l'image »
+    d'Android et d'iPhone ;
+  - 📁 **fichier audio ou vidéo** : cours enregistré, vidéo téléchargée, message vocal d'un partenaire ;
+  - 📤 **partage direct** : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours »
+    (application installée, Android).
 - **Lecture à voix haute en français** (synthèse vocale) — utilisez des écouteurs.
 - **Sous-titres flottants** : une petite fenêtre qui reste au-dessus de Zoom/Teams (Chrome/Edge sur ordinateur).
 - **Plein écran**, taille du texte réglable, affichage optionnel du texte anglais original.
@@ -34,7 +42,9 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
 | Cours en salle, en anglais | Source : Microphone — Moteur : Gemini Live |
 | Réunion Zoom/Meet/Teams **dans le navigateur** | Source : Audio d'un onglet — choisir l'onglet de la réunion |
 | Application **Zoom de bureau** (Windows) | Source : Audio d'un onglet → « Écran entier » + « Partager l'audio du système » |
-| Application Zoom de bureau (Mac) ou téléphone | Source : Microphone (le micro capte le son des haut-parleurs) |
+| Application Zoom de bureau (Mac) | Source : Microphone (le micro capte le son des haut-parleurs) |
+| Réunion Zoom, Meet ou WhatsApp **sur le téléphone** | Source : Réunion sur ce téléphone + Sous-titres flottants, réunion en haut-parleur |
+| Cours enregistré, vidéo téléchargée, message vocal | Source : Fichier audio ou vidéo (ou « Partager » → Traducteur de Cours) |
 | Navigateur autre que Chrome/Edge (Firefox, Safari…) | Moteur : Whisper (clé API) |
 
 ## ⚙️ Moteurs

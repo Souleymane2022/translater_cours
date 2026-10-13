@@ -32,3 +32,15 @@ Voix de synthèse Kokoro → micro de l'application → Whisper → Google Tradu
 
 Le moteur Gemini Live n'est pas couvert par ces tests (il demande une clé personnelle) ; il est vérifié
 avec un serveur simulé qui contrôle le format des messages, la reconnexion et l'affichage en continu.
+
+## Fonctions « téléphone » (`telephone-e2e.js`)
+
+```bash
+node telephone-e2e.js voix_espagnol.wav dossier_sortie
+```
+
+Vérifie, dans l'application réelle : la traduction d'un fichier audio pendant sa lecture (vraie voix espagnole →
+Whisper local → Google Traduction → « Bonjour, aujourd'hui nous allons étudier les fractions… ») et l'arrêt
+automatique en fin de fichier ; l'ouverture du micro sans annulation d'écho en mode « Réunion sur ce téléphone » ;
+les sous-titres flottants par Picture-in-Picture vidéo (texte arabe de droite à gauche) ; la réception d'un fichier
+partagé depuis une autre application. **12/12 réussis.**
