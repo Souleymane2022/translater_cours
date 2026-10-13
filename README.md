@@ -43,7 +43,8 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
   Bien plus précis que la reconnaissance du navigateur, avec un délai de 2 à 4 s après chaque pause.
   1. Créez une clé gratuite sur <https://aistudio.google.com/apikey> (compte Google).
   2. Choisissez le moteur « Gemini », ouvrez « Réglages Gemini » et collez la clé.
-  3. Modèle : `gemini-3.5-flash-lite` (rapide, par défaut) ou `gemini-3.8-flash` (plus précis).
+  3. Modèle : `gemini-3.1-flash-lite` par défaut. Si le modèle est surchargé (erreur 503), trop lent ou retiré,
+     l'application bascule automatiquement sur d'autres modèles Gemini et retient celui qui répond.
      Les noms changent avec le temps : la liste à jour est sur <https://ai.google.dev/gemini-api/docs/models>.
   - Le quota gratuit limite le nombre de requêtes par minute : l'application envoie des segments de 4 à 15 s pour rester dessous.
 - **Navigateur (gratuit)** : reconnaissance vocale intégrée à Chrome/Edge. Rapide, avec affichage mot à mot.

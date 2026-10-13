@@ -24,7 +24,7 @@
     }
     if (!$('apiBase').value) $('apiBase').value = 'https://api.openai.com/v1';
     if (!$('apiModel').value) $('apiModel').value = 'gpt-4o-mini-transcribe';
-    if (!$('geminiModel').value) $('geminiModel').value = 'gemini-3.5-flash-lite';
+    if (!$('geminiModel').value || $('geminiModel').value === 'gemini-3.5-flash-lite') $('geminiModel').value = 'gemini-3.1-flash-lite';
   }
 
   function saveSettings() {
@@ -418,7 +418,7 @@
           const text = original.trim();
           if (text && !WHISPER_HALLUCINATIONS.test(text)) this.handlers.onFinal(text, translation);
         } catch (err) {
-          if (/HTTP (400|401|403|404)/.test(err.message)) this.handlers.onFatal(this.explainError(err));
+          if (/^HTTP (401|403|404)/.test(err.message)) this.handlers.onFatal(this.explainError(err));
           else this.handlers.onWarning(this.explainError(err));
         }
       });
@@ -465,19 +465,24 @@
     }
   }
 
+  // Modèles essayés si celui choisi est surchargé (503), trop lent, épuisé (429) ou retiré (404).
+  const GEMINI_FALLBACKS = ['gemini-3.1-flash-lite', 'gemini-3-flash-preview', 'gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-flash-latest'];
+  const GEMINI_TIMEOUT_MS = 12000;
+
   // Gemini écoute l'audio et renvoie en une seule requête la transcription ET la traduction.
   class GeminiEngine extends SegmentedEngine {
     constructor({ apiKey, model, srcName, tgtName, ...rest }, handlers) {
       // Segments plus longs : moins de requêtes (quota gratuit) et plus de contexte pour traduire.
       super(rest, handlers, { minMs: 4000, maxMs: 15000 });
       this.apiKey = apiKey;
-      this.model = model;
+      this.models = [...new Set([model, ...GEMINI_FALLBACKS])];
+      this.noThinkingConfig = new Set(); // modèles qui refusent le réglage de réflexion
       this.srcName = srcName;
       this.tgtName = tgtName;
       this.context = [];
     }
 
-    async transcribe(blob) {
+    buildBody(base64, withThinking) {
       const previous = this.context.join(' ');
       const prompt = `You are a professional live interpreter for a lecture or meeting. `
         + `The audio is the next short excerpt of speech in ${this.srcName}. `
@@ -485,39 +490,83 @@
         + `keeping technical terms accurate. `
         + (previous ? `For context only (already translated, do not repeat it): "${previous}". ` : '')
         + `If the audio contains no intelligible speech, return empty strings.`;
-      const body = {
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: prompt },
-            { inline_data: { mime_type: 'audio/wav', data: await blobToBase64(blob) } },
-          ],
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: 'OBJECT',
-            properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } },
-            required: ['original', 'translation'],
-          },
+      const generationConfig = {
+        temperature: 0.2,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: { original: { type: 'STRING' }, translation: { type: 'STRING' } },
+          required: ['original', 'translation'],
         },
       };
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(this.model)}:generateContent`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey }, body: JSON.stringify(body) },
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(`HTTP ${res.status}${data.error ? ` — ${data.error.message}` : ''}`);
-      const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
-      const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join('');
-      let result;
-      try { result = JSON.parse(text); } catch { return { original: '', translation: '' }; }
-      if (result.original) {
-        this.context.push(result.original);
-        if (this.context.length > 3) this.context.shift();
+      // Pas de « réflexion » : la réponse arrive bien plus vite.
+      if (withThinking) generationConfig.thinkingConfig = { thinkingLevel: 'minimal' };
+      return JSON.stringify({
+        contents: [{
+          role: 'user',
+          parts: [{ text: prompt }, { inline_data: { mime_type: 'audio/wav', data: base64 } }],
+        }],
+        generationConfig,
+      });
+    }
+
+    async callModel(model, base64) {
+      const withThinking = !this.noThinkingConfig.has(model);
+      const abort = new AbortController();
+      const timer = setTimeout(() => abort.abort(), GEMINI_TIMEOUT_MS);
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+            body: this.buildBody(base64, withThinking),
+            signal: abort.signal,
+          },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          const message = (data.error && data.error.message) || '';
+          if (res.status === 400 && withThinking && /thinking/i.test(message)) {
+            this.noThinkingConfig.add(model);
+            return this.callModel(model, base64);
+          }
+          throw new Error(`HTTP ${res.status}${message ? ` — ${message}` : ''}`);
+        }
+        const candidate = data.candidates && data.candidates[0];
+        const parts = (candidate && candidate.content && candidate.content.parts) || [];
+        return parts.filter((p) => p.text && !p.thought).map((p) => p.text).join('');
+      } catch (err) {
+        if (err.name === 'AbortError') throw new Error('délai dépassé');
+        throw err;
+      } finally {
+        clearTimeout(timer);
       }
-      return result;
+    }
+
+    async transcribe(blob) {
+      const base64 = await blobToBase64(blob);
+      let lastErr;
+      for (const model of [...this.models]) {
+        try {
+          const text = await this.callModel(model, base64);
+          // On garde en tête de liste le modèle qui vient de répondre.
+          this.models = [model, ...this.models.filter((m) => m !== model)];
+          let result;
+          try { result = JSON.parse(text); } catch { result = { original: '', translation: '' }; }
+          if (result.original) {
+            this.context.push(result.original);
+            if (this.context.length > 3) this.context.shift();
+          }
+          return result;
+        } catch (err) {
+          if (/HTTP (401|403)/.test(err.message)) throw err;
+          if (/HTTP 404/.test(err.message)) this.models = this.models.filter((m) => m !== model);
+          lastErr = err;
+          console.warn(`Gemini « ${model} » : ${err.message}`);
+        }
+      }
+      throw new Error(`Gemini indisponible pour cette phrase (${lastErr ? lastErr.message : 'aucun modèle'}). Réessai à la phrase suivante.`);
     }
   }
 
@@ -598,7 +647,7 @@
           stream: mediaStream,
           lang,
           apiKey: $('geminiKey').value.trim(),
-          model: $('geminiModel').value.trim() || 'gemini-3.5-flash-lite',
+          model: $('geminiModel').value.trim() || 'gemini-3.1-flash-lite',
           srcName: optionText('srcLang'),
           tgtName: optionText('tgtLang'),
         }, handlers);
