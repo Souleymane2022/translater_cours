@@ -2,6 +2,8 @@
 
 | Fichier | Contenu |
 |---|---|
+| `tutoriel-complet-vertical.mp4` | **Vidéo complète, 2 min 04, verticale 1080×1920** (WhatsApp, TikTok, Reels, Shorts) : partie téléphone, puis partie ordinateur recadrée avec de grands sous-titres, puis la carte finale. |
+| `tutoriel-complet-horizontal.mp4` | **Vidéo complète, 2 min 05, horizontale 1920×1080** (YouTube, Facebook, LinkedIn) : partie téléphone recadrée avec de grands sous-titres, puis partie ordinateur. |
 | `tutoriel-traducteur-de-cours.mp4` | **Tutoriel pratique, 79 s, vertical 1080×1920, avec voix.** L'application réelle filmée sur un téléphone : ouvrir le site, choisir Gemini Live, ajouter la clé, choisir la langue, démarrer ; puis un prof parle anglais et l'interprète traduit en direct en français, en espagnol, puis en arabe (texte). |
 | `tutoriel-ordinateur-traducteur-de-cours.mp4` | **Version ordinateur, 53 s, horizontal 1920×1080 (YouTube, Facebook, LinkedIn).** Un cours en ligne en anglais dans un onglet : choisir « Audio d'un onglet », partager l'onglet avec son audio, activer les sous-titres flottants ; la prof parle et la traduction française s'affiche au-dessus de la vidéo avec la voix de l'interprète. Rappel pour l'application Zoom sur Windows (écran entier + audio du système). |
 | `demo-traducteur-de-cours.mp4` | Animation courte (36 s), textes et musique, sans voix. |
@@ -15,6 +17,12 @@
    Seul le serveur Gemini Live est simulé : il renvoie, au rythme de la parole, le texte et la voix
    préparés à l'étape 1 (sans clé personnelle, impossible d'appeler le vrai Gemini pendant le tournage).
 3. `build.py` assemble les images, les voix à leur instant exact et une musique discrète (`../music.py`).
+
+`combine.js` réunit les deux tutoriels en une vidéo complète, dans les deux formats :
+
+```bash
+node combine.js rec clips tutoriel-telephone.mp4 rec_pc clips_pc tutoriel-ordinateur.mp4 sortie
+```
 
 La version ordinateur utilise `script-ordinateur.json`, `stage-ordinateur.html`, `cours.html` (page de cours
 générique) et `record-ordinateur.js`. La fenêtre de partage et la fenêtre des sous-titres flottants sont
