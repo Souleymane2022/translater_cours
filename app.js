@@ -714,6 +714,6 @@
   if ('speechSynthesis' in self) speechSynthesis.getVoices(); // précharge les voix
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
   }
 })();

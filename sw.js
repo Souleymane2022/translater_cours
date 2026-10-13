@@ -1,5 +1,5 @@
 // Service worker : met l'interface en cache pour un démarrage rapide et l'installation en application.
-const CACHE = 'traducteur-cours-v3';
+const CACHE = 'traducteur-cours-v4';
 const ASSETS = ['./', 'index.html', 'style.css', 'app.js', 'translate.js', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => {
@@ -12,12 +12,13 @@ self.addEventListener('activate', (e) => {
     .then(() => self.clients.claim()));
 });
 
-// Réseau d'abord pour les fichiers de l'application, cache en secours. Les API externes ne sont pas interceptées.
+// Réseau d'abord (en contournant le cache HTTP pour toujours avoir la dernière version), cache en secours.
+// Les API externes ne sont pas interceptées.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy));
