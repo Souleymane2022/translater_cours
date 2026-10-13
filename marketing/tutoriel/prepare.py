@@ -1,12 +1,12 @@
 """Prépare la vidéo tutoriel : vraies traductions (Google), voix (Kokoro), vérification par Whisper.
-Usage : python prepare.py <dossier_modeles> <dossier_sortie>"""
+Usage : python prepare.py <dossier_modeles> <dossier_sortie> [script.json]"""
 import json, os, sys, urllib.parse, urllib.request
 import numpy as np, soundfile as sf
 from kokoro_onnx import Kokoro
 
 models, out = sys.argv[1], sys.argv[2]
 os.makedirs(out, exist_ok=True)
-script = json.load(open(os.path.join(os.path.dirname(__file__), 'script.json')))
+script = json.load(open(sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(__file__), 'script.json')))
 k = Kokoro(f'{models}/kokoro-v1.0.onnx', f'{models}/voices-v1.0.bin')
 
 def translate(text, tgt):

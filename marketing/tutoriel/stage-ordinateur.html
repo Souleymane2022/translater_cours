@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Tutoriel ordinateur – Traducteur de Cours</title>
+<!-- Plateau de la vidéo « ordinateur » (1920×1080) : une fenêtre de navigateur avec un cours en ligne et
+     l'application réelle (iframes). record-ordinateur.js pilote l'ensemble et le filme. -->
+<style>
+  :root { --blue: #1d4ed8; --navy: #0b1020; --yellow: #facc15; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; }
+  body { font-family: "Inter", "Noto Color Emoji", sans-serif; position: relative;
+    background: radial-gradient(1200px 800px at 80% 0%, rgba(29,78,216,.6), transparent 70%), linear-gradient(160deg, #0b1020, #172554); }
+
+  .win { position: absolute; left: 60px; top: 30px; width: 1800px; height: 1000px; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 30px 90px rgba(0,0,0,.55); }
+  .tabs { height: 46px; background: #dfe3ea; display: flex; align-items: flex-end; gap: 4px; padding: 0 12px; }
+  .dots { display: flex; gap: 8px; align-self: center; margin-right: 14px; }
+  .dots i { width: 14px; height: 14px; border-radius: 50%; display: block; }
+  .tab { width: 330px; height: 38px; border-radius: 10px 10px 0 0; padding: 0 16px; display: flex; align-items: center; gap: 10px; font-size: 16px; color: #374151; white-space: nowrap; overflow: hidden; }
+  .tab.on { background: #fff; color: #111827; font-weight: 600; }
+  .tab svg { width: 20px; height: 20px; flex: none; }
+  .tab .snd { margin-left: auto; font-size: 14px; display: none; }
+  .tab.sharing .snd { display: inline; }
+  .addr { height: 50px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 16px; padding: 0 16px; color: #6b7280; font-size: 18px; }
+  .addr .field { flex: 1; height: 36px; border-radius: 18px; background: #f1f3f4; display: flex; align-items: center; padding: 0 18px; color: #111827; font-size: 17px; }
+  .content { position: absolute; top: 96px; left: 0; width: 1800px; height: 904px; overflow: hidden; background: #f4f6fb; }
+  .content iframe { position: absolute; top: 0; left: 0; border: 0; }
+  #course { width: 1800px; height: 908px; }
+  #app { width: 1200px; height: 603px; transform: scale(1.5); transform-origin: 0 0; }
+  .hidden { visibility: hidden; }
+
+  /* Fenêtre de partage (illustration de la boîte de dialogue du navigateur) */
+  .modal { position: absolute; inset: 0; background: rgba(0,0,0,.35); display: grid; place-items: center; z-index: 8; transition: opacity .3s; }
+  .modal.off { opacity: 0; pointer-events: none; }
+  .dialog { width: 760px; background: #fff; border-radius: 14px; box-shadow: 0 20px 70px rgba(0,0,0,.4); padding: 28px 30px; color: #111827; }
+  .dialog h3 { font-size: 22px; font-weight: 700; }
+  .dialog .seg { display: flex; gap: 6px; margin: 20px 0 16px; border-bottom: 2px solid #e5e7eb; }
+  .seg span { padding: 10px 18px; font-size: 17px; color: #6b7280; }
+  .seg span.on { color: var(--blue); border-bottom: 3px solid var(--blue); margin-bottom: -2px; font-weight: 600; }
+  .choice { display: flex; align-items: center; gap: 16px; padding: 14px; border-radius: 10px; border: 2px solid transparent; font-size: 18px; }
+  .choice .thumb { width: 150px; height: 84px; border-radius: 8px; background: linear-gradient(135deg, #1e1b4b, #312e81); color: #fff; font-size: 13px; padding: 10px; }
+  .choice.on { border-color: var(--blue); background: #eff6ff; }
+  .check { display: flex; align-items: center; gap: 12px; margin-top: 18px; font-size: 18px; }
+  .box { width: 24px; height: 24px; border-radius: 5px; border: 2px solid #6b7280; display: grid; place-items: center; color: #fff; font-size: 16px; }
+  .box.on { background: var(--blue); border-color: var(--blue); }
+  .actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+  .btn { padding: 10px 24px; border-radius: 20px; font-size: 17px; border: 1px solid #d1d5db; }
+  .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+
+  /* Sous-titres flottants (fenêtre Picture-in-Picture de l'application) */
+  .pip { position: absolute; left: 470px; top: 560px; width: 980px; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 80px rgba(0,0,0,.6); z-index: 6; transition: opacity .4s, transform .4s; background: #202124; }
+  .pip.off { opacity: 0; transform: scale(.92); pointer-events: none; }
+  .pip .bar { height: 34px; display: flex; align-items: center; padding: 0 14px; gap: 10px; color: #e5e7eb; font-size: 15px; }
+  .pip iframe { display: block; border: 0; width: 700px; height: 200px; transform: scale(1.4); transform-origin: 0 0; }
+  .pip .frame { width: 980px; height: 280px; overflow: hidden; }
+
+  .cursor { position: absolute; left: 960px; top: 1200px; width: 34px; height: 34px; z-index: 30; transition: left .7s cubic-bezier(.3,.8,.3,1), top .7s cubic-bezier(.3,.8,.3,1); pointer-events: none; }
+  .cursor svg { width: 34px; height: 34px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.5)); }
+  .ripple { position: absolute; width: 70px; height: 70px; margin: -35px 0 0 -35px; border-radius: 50%; border: 5px solid var(--yellow); opacity: 0; z-index: 29; pointer-events: none; }
+  .ripple.go { animation: rip .6s ease-out; }
+  @keyframes rip { 0% { opacity: 1; transform: scale(.3); } 100% { opacity: 0; transform: scale(1.4); } }
+
+  .chip { position: absolute; left: 50%; top: 52px; transform: translateX(-50%); z-index: 12; display: flex; align-items: center; gap: 16px; padding: 14px 28px 14px 14px; border-radius: 999px; background: rgba(11,16,32,.92); color: #fff; font-size: 30px; font-weight: 800; box-shadow: 0 10px 40px rgba(0,0,0,.4); transition: opacity .3s; white-space: nowrap; }
+  .chip.off { opacity: 0; }
+  .chip b { width: 56px; height: 56px; border-radius: 50%; background: var(--yellow); color: var(--navy); display: grid; place-items: center; font-size: 30px; }
+  .sub { position: absolute; left: 50%; bottom: 40px; transform: translateX(-50%); max-width: 1500px; z-index: 12; padding: 18px 34px; border-radius: 22px; background: rgba(11,16,32,.9); color: #fff; font-size: 32px; font-weight: 650; text-align: center; line-height: 1.3; transition: opacity .3s; }
+  .sub.off { opacity: 0; }
+  .sub em { font-style: normal; color: var(--yellow); }
+
+  .card { position: absolute; inset: 0; z-index: 40; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; color: #fff; transition: opacity .5s;
+    background: radial-gradient(1200px 800px at 80% 0%, rgba(29,78,216,.65), transparent 70%), linear-gradient(160deg, #0b1020, #172554); }
+  .card.off { opacity: 0; pointer-events: none; }
+  .card .logo { width: 170px; height: 170px; margin-bottom: 40px; }
+  .card h1 { font-family: "Inter Display", "Inter", sans-serif; font-size: 92px; font-weight: 900; letter-spacing: -.02em; line-height: 1.05; }
+  .card h1 em { font-style: normal; color: var(--yellow); }
+  .card p { font-size: 40px; color: #cbd5e1; margin-top: 30px; font-weight: 600; }
+  .card .link { margin-top: 46px; font-size: 36px; font-weight: 800; padding: 24px 44px; border-radius: 999px; background: var(--yellow); color: var(--navy); }
+  .card .logos { margin-top: 36px; font-size: 34px; color: #e2e8f0; font-weight: 700; display: flex; gap: 34px; }
+</style>
+</head>
+<body>
+<template id="logo">
+  <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+    <rect width="512" height="512" rx="96" fill="#1d4ed8"/>
+    <rect x="64" y="112" width="240" height="170" rx="28" fill="#fff"/>
+    <text x="184" y="225" font-family="Inter, Arial, sans-serif" font-size="96" font-weight="800" fill="#1d4ed8" text-anchor="middle">EN</text>
+    <rect x="208" y="246" width="240" height="170" rx="28" fill="#facc15"/>
+    <text x="328" y="359" font-family="Inter, Arial, sans-serif" font-size="96" font-weight="800" fill="#0b1020" text-anchor="middle">FR</text>
+  </svg>
+</template>
+
+<div class="win">
+  <div class="tabs">
+    <div class="dots"><i style="background:#ef4444"></i><i style="background:#f59e0b"></i><i style="background:#22c55e"></i></div>
+    <div class="tab on" id="tabCourse">🎓 Machine Learning – Lecture 1<span class="snd">🔊 partagé</span></div>
+    <div class="tab" id="tabApp"><span data-logo style="display:inline-flex;width:20px;height:20px"></span>Traducteur de Cours</div>
+  </div>
+  <div class="addr">← → ⟳<div class="field" id="addr">🔒 opencourse.example/machine-learning/lecture-1</div></div>
+  <div class="content">
+    <iframe id="course" title="Cours"></iframe>
+    <iframe id="app" class="hidden" title="Traducteur de Cours"></iframe>
+    <div class="modal off" id="modal">
+      <div class="dialog">
+        <h3>Choisissez ce que vous souhaitez partager</h3>
+        <div class="seg"><span class="on" id="segTab">Onglet</span><span>Fenêtre</span><span id="segScreen">Écran entier</span></div>
+        <div class="choice" id="choice"><div class="thumb">Introduction to Machine Learning</div><div id="choiceLabel">🎓 Machine Learning – Lecture 1</div></div>
+        <div class="check"><div class="box" id="box"></div><span id="checkLabel">Partager aussi l'audio de l'onglet</span></div>
+        <div class="actions"><div class="btn">Annuler</div><div class="btn primary" id="shareBtn">Partager</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="pip off" id="pip">
+  <div class="bar"><span data-logo style="display:inline-flex;width:18px;height:18px"></span>Sous-titres — Traducteur de Cours</div>
+  <div class="frame"><iframe id="pipFrame" title="Sous-titres flottants"></iframe></div>
+</div>
+
+<div class="ripple" id="ripple"></div>
+<div class="cursor" id="cursor"><svg viewBox="0 0 24 24"><path d="M4 2l15 11-6.5 1.2L16 21l-3 1.4-3.4-6.8L4 20z" fill="#fff" stroke="#000" stroke-width="1.3" stroke-linejoin="round"/></svg></div>
+
+<div class="chip off" id="chip"><b id="chipNum">1</b><span id="chipText"></span></div>
+<div class="sub off" id="sub"></div>
+
+<div class="card" id="intro">
+  <div class="logo" data-logo></div>
+  <h1>Version <em>ordinateur</em></h1>
+  <p>Traduis le son de tes cours en ligne et de tes réunions</p>
+  <div class="logos"><span>▶ YouTube</span><span>🎓 Coursera</span><span>📹 Zoom</span><span>💬 Google Meet</span></div>
+</div>
+<div class="card off" id="cta">
+  <div class="logo" data-logo></div>
+  <h1>Traducteur de <em>Cours</em></h1>
+  <p>Téléphone & ordinateur • Gratuit • Sans inscription</p>
+  <div class="link">souleymane2022.github.io/translater_cours</div>
+</div>
+
+<script>
+  for (const el of document.querySelectorAll('[data-logo]')) el.append(document.getElementById('logo').content.cloneNode(true));
+  const $ = (id) => document.getElementById(id);
+  let shareResolve = null;
+
+  window.stage = {
+    chip(num, text) { const c = $('chip'); if (!text) { c.classList.add('off'); return; } $('chipNum').textContent = num; $('chipText').textContent = text; c.classList.remove('off'); },
+    sub(html) { const s = $('sub'); if (!html) { s.classList.add('off'); return; } s.innerHTML = html; s.classList.remove('off'); },
+    card(id, show) { $(id).classList.toggle('off', !show); },
+    load(course, app) { $('course').src = course; $('app').src = app; },
+    tab(which) {
+      const app = which === 'app';
+      $('tabApp').classList.toggle('on', app); $('tabCourse').classList.toggle('on', !app);
+      $('app').classList.toggle('hidden', !app); $('course').classList.toggle('hidden', app);
+      $('addr').textContent = app ? '🔒 souleymane2022.github.io/translater_cours' : '🔒 opencourse.example/machine-learning/lecture-1';
+    },
+    // Curseur : x, y en coordonnées du plateau.
+    move(x, y) { $('cursor').style.left = `${x - 4}px`; $('cursor').style.top = `${y - 2}px`; },
+    click(x, y) { const r = $('ripple'); r.style.left = `${x}px`; r.style.top = `${y}px`; r.classList.remove('go'); void r.offsetWidth; r.classList.add('go'); },
+    // Position (plateau) d'un rectangle de l'application (iframe agrandie 1,5×) ou du plateau lui-même.
+    appPoint(rect) { const c = $('app').getBoundingClientRect(); return { x: c.left + (rect.x + rect.width / 2) * 1.5, y: c.top + (rect.y + rect.height / 2) * 1.5 }; },
+    point(id) { const r = $(id).getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; },
+    course(fn, ...args) { $('course').contentWindow.course[fn](...args); },
+
+    // Appelé par l'application à la place de getDisplayMedia : affiche la fenêtre de partage.
+    share() { $('modal').classList.remove('off'); return new Promise((r) => { shareResolve = r; }); },
+    shareStep(step) {
+      if (step === 'choice') $('choice').classList.add('on');
+      if (step === 'audio') $('box').classList.add('on'), $('box').textContent = '✓';
+      if (step === 'done') { $('modal').classList.add('off'); $('tabCourse').classList.add('sharing'); if (shareResolve) shareResolve(); }
+    },
+    // Illustration seule : partage de l'écran entier avec le son du système (application Zoom).
+    screenDialog(show) {
+      $('segTab').classList.toggle('on', !show); $('segScreen').classList.toggle('on', show);
+      $('choiceLabel').textContent = show ? '🖥️ Écran entier' : '🎓 Machine Learning – Lecture 1';
+      $('checkLabel').textContent = show ? "Partager aussi l'audio du système" : "Partager aussi l'audio de l'onglet";
+      $('choice').classList.toggle('on', show); $('box').classList.toggle('on', show); $('box').textContent = show ? '✓' : '';
+      $('modal').classList.toggle('off', !show);
+    },
+    // Appelé par l'application à la place de documentPictureInPicture.requestWindow.
+    openPip() {
+      const f = $('pipFrame');
+      return new Promise((resolve) => {
+        f.onload = () => { $('pip').classList.remove('off'); resolve(f.contentWindow); };
+        f.srcdoc = '<!doctype html><html lang="fr"><head><meta charset="utf-8"></head><body></body></html>';
+      });
+    },
+  };
+</script>
+</body>
+</html>

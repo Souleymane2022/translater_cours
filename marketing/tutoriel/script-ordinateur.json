@@ -1,0 +1,41 @@
+{
+  "narration": {
+    "d1": [
+      "Et sur ordinateur, tu peux traduire directement le son d'une vidéo YouTube, d'un cours Coursera, ou d'une réunion Zoom ou Google Meet.",
+      "Et sur ordinateur, tu peux traduire directement le son d'une vidéo You Tioube, d'un cours Coursséra, ou d'une réunion Zoum ou Gougueul Mite."
+    ],
+    "d2": "Ouvre ton cours dans un nouvel onglet de ton navigateur.",
+    "d3": "Dans Traducteur de Cours, choisis la source : audio d'un onglet. Puis appuie sur Démarrer.",
+    "d4": "Choisis l'onglet de ton cours, coche Partager l'audio de l'onglet, puis valide.",
+    "d5": "Active les sous-titres flottants : la traduction reste au-dessus de ta vidéo.",
+    "d6": [
+      "Pour une réunion dans l'application Zoom sur Windows, choisis Écran entier, et coche Partager l'audio du système.",
+      "Pour une réunion dans l'application Zoum sur Ouinedoze, choisis Écran entier, et coche Partager l'audio du système."
+    ],
+    "d7": "Traducteur de Cours. Sur téléphone et sur ordinateur. Le lien est à l'écran."
+  },
+  "lecture": {
+    "fr": [
+      "Welcome to the first lecture of this course on machine learning.",
+      "A model learns from examples, instead of following fixed rules.",
+      "For example, it can learn to recognize cats in photos."
+    ]
+  },
+  "voices": {
+    "narrator": [
+      "ff_siwis",
+      "fr-fr",
+      1.05
+    ],
+    "professor": [
+      "af_heart",
+      "en-us",
+      0.95
+    ],
+    "fr": [
+      "ff_siwis+am_michael:0.35",
+      "fr-fr",
+      1.1
+    ]
+  }
+}
