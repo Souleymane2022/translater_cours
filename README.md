@@ -20,6 +20,10 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
   - 📁 **fichier audio ou vidéo** : cours enregistré, vidéo téléchargée, message vocal d'un partenaire ;
   - 📤 **partage direct** : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours »
     (application installée, Android).
+- **Le son de la vidéo baisse automatiquement** pendant que la voix de la traduction parle, puis remonte
+  (fichier audio/vidéo, ou onglet partagé sur ordinateur).
+- **Pas de répétitions** quand la vidéo est en pause : le silence n'est plus envoyé, et les échos d'une
+  traduction déjà dite sont écartés (texte et voix).
 - **Lecture à voix haute en français** (synthèse vocale) — utilisez des écouteurs.
 - **Sous-titres flottants** : une petite fenêtre qui reste au-dessus de Zoom/Teams (Chrome/Edge sur ordinateur).
 - **Plein écran**, taille du texte réglable, affichage optionnel du texte anglais original.

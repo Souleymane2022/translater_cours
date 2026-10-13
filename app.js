@@ -8,7 +8,7 @@
   const SETTINGS_KEY = 'traducteur-cours-settings';
   // Version 2 : Gemini Live devient le moteur conseillé ; les anciens choix « Gemini » y sont basculés une fois.
   const SETTINGS_VERSION = 2;
-  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'liveModel', 'speak', 'showOriginal', 'fontSize'];
+  const SETTING_FIELDS = ['source', 'engine', 'srcLang', 'tgtLang', 'translator', 'apiBase', 'apiModel', 'apiKey', 'geminiKey', 'geminiModel', 'liveModel', 'speak', 'duck', 'showOriginal', 'fontSize'];
 
   // Phrases que Whisper « invente » souvent sur du silence ou de la musique.
   const WHISPER_HALLUCINATIONS = /^(thank you\.?|thanks for watching!?|you|bye\.?|\.+|subtitles by .*|please subscribe.*)$/i;
@@ -70,8 +70,8 @@
         + '3) ouvrez Zoom, Meet ou WhatsApp et mettez le son en haut-parleur. La traduction reste affichée au-dessus de la réunion. '
         + 'Certains téléphones coupent le micro des autres applications pendant un appel : dans ce cas, utilisez un 2ᵉ appareil '
         + 'posé à côté, ou rejoignez la réunion depuis un ordinateur. '
-        + '🔊 La voix de la traduction sort du haut-parleur avec la réunion : avec Gemini Live, elle est reconnue et ignorée ; '
-        + 'avec les autres moteurs, l\'écoute fait une courte pause pendant qu\'elle parle.');
+        + '🔊 Pendant que la voix de la traduction parle, l\'écoute fait une courte pause pour ne pas la retraduire. '
+        + 'Le volume de Zoom, YouTube ou WhatsApp ne peut pas être baissé par le site : baissez-le un peu vous-même.');
     } else if (source === 'file') {
       hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
         + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
@@ -657,6 +657,28 @@
   const LIVE_INPUT_RATE = 16000;
   const LIVE_OUTPUT_RATE = 24000;
   const LIVE_FROZEN_MS = 12000; // parole entendue sans aucune réponse avant de changer de session
+  const LIVE_SILENCE_MS = 1500; // au-delà, on n'envoie plus le silence (vidéo en pause…)
+  const ECHO_WINDOW_MS = 120000; // une traduction qui ressemble à celles des 2 dernières minutes est un écho
+  const ECHO_HOLD_WORDS = 6; // mots attendus avant de jouer la voix d'un nouveau tour (mode haut-parleur)
+
+  const wordsOf = (t) => (t || '').toLowerCase().normalize('NFC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean);
+
+  // Vrai si `text` reprend une traduction récente : mêmes 6 premiers mots (ou plus) à la suite, ou presque
+  // tous les mêmes mots. Les phrases courtes ne sont comparées qu'à l'identique, pour ne pas jeter
+  // une vraie phrase qui commence comme une autre (« Aujourd'hui, nous allons… »).
+  function looksLikeEcho(text, recent) {
+    const words = wordsOf(text);
+    if (!words.length) return false;
+    const joined = words.join(' ');
+    const prefix = words.slice(0, 8).join(' ');
+    return recent.some((r) => {
+      const rw = wordsOf(r);
+      if (rw.join(' ') === joined) return true;
+      if (words.length >= ECHO_HOLD_WORDS && ` ${rw.join(' ')} `.includes(` ${prefix} `)) return true;
+      const set = new Set(rw);
+      return words.length >= 5 && words.filter((w) => set.has(w)).length / words.length >= 0.85;
+    });
+  }
 
   // Rééchantillonne le flux du micro vers 16 kHz, en gardant l'état d'un bloc à l'autre.
   class Resampler {
@@ -704,6 +726,16 @@
       this.pending = [];
       this.original = '';
       this.translation = '';
+      this.recent = []; // traductions déjà données : { text, at }
+      this.held = null; // voix d'un nouveau tour, retenue le temps de vérifier que ce n'est pas un écho
+      this.dropTurn = false;
+      this.silentMs = 0;
+      this.echoGuard = false; // micro qui entend le haut-parleur (réglé par start())
+    }
+
+    // La voix de l'interprète est en train d'être jouée (ou va l'être).
+    voicePlaying() {
+      return !!this.playCtx && this.playAt > this.playCtx.currentTime - 0.4;
     }
 
     async start() {
@@ -814,7 +846,13 @@
 
     onFrames(frame) {
       if (!this.running) return;
+      // Micro qui entend le haut-parleur : pendant que l'interprète parle, on n'écoute pas (sinon il se retraduit).
+      if (this.echoGuard && this.voicePlaying()) frame = new Float32Array(frame.length);
       this.watchdog(frame);
+      let sum = 0;
+      for (const v of frame) sum += v * v;
+      if (Math.sqrt(sum / frame.length) > 0.01) this.silentMs = 0;
+      else this.silentMs += (frame.length / this.ctx.sampleRate) * 1000;
       this.pending.push(this.resampler.push(frame));
       const total = this.pending.reduce((n, a) => n + a.length, 0);
       if (total < LIVE_INPUT_RATE / 10) return; // envoi toutes les ~100 ms
@@ -822,6 +860,8 @@
       let offset = 0;
       for (const a of this.pending) { pcm.set(a, offset); offset += a.length; }
       this.pending = [];
+      // Vidéo en pause, silence : après 1,5 s on n'envoie plus rien, Gemini n'a rien à « inventer ».
+      if (this.silentMs > LIVE_SILENCE_MS) return;
       if (!this.ready || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       this.ws.send(JSON.stringify({
         realtimeInput: {
@@ -859,22 +899,55 @@
       if (sc.outputTranscription && sc.outputTranscription.text) this.translation += sc.outputTranscription.text;
       if (this.playAudio && sc.modelTurn && sc.modelTurn.parts) {
         for (const part of sc.modelTurn.parts) {
-          if (part.inlineData && part.inlineData.data) this.play(part.inlineData.data);
+          if (!part.inlineData || !part.inlineData.data || this.dropTurn) continue;
+          // Mode haut-parleur, début d'un tour : la voix attend les premiers mots, pour vérifier que ce
+          // n'est pas l'écho d'une traduction déjà dite (le micro entend l'interprète).
+          if (!this.echoGuard) this.play(part.inlineData.data);
+          else if (this.held) this.held.push(part.inlineData.data);
+          else if (wordsOf(this.translation).length < ECHO_HOLD_WORDS && !this.turnChecked) this.held = [part.inlineData.data];
+          else this.play(part.inlineData.data);
         }
       }
+      this.checkEcho(!!sc.turnComplete);
 
       // Une phrase est terminée : fin du tour, ou longue phrase qui se termine par une ponctuation.
       const sentenceDone = this.translation.length > 160 && /[.!?…]\s*$/.test(this.translation);
       if (sc.turnComplete || sentenceDone) this.flush();
-      else if (this.translation || this.original) this.handlers.onLive(this.translation, this.original);
+      else if (!this.dropTurn && (this.translation || this.original)) this.handlers.onLive(this.translation, this.original);
+    }
+
+    // Dès que le tour a assez de mots (ou se termine), on décide : écho d'une traduction récente → jeté
+    // en entier (texte et voix) ; sinon la voix retenue est jouée.
+    checkEcho(turnComplete) {
+      if (!this.echoGuard || this.turnChecked || this.dropTurn) return;
+      if (wordsOf(this.translation).length < ECHO_HOLD_WORDS && !turnComplete) return;
+      const now = Date.now();
+      this.recent = this.recent.filter((r) => now - r.at < ECHO_WINDOW_MS);
+      this.turnChecked = true;
+      if (this.translation.trim() && looksLikeEcho(this.translation, this.recent.map((r) => r.text))) {
+        this.dropTurn = true;
+        this.held = null;
+        return;
+      }
+      if (this.held) { for (const data of this.held) this.play(data); this.held = null; }
     }
 
     flush() {
       const original = this.original.trim();
       const translation = this.translation.trim();
+      const now = Date.now();
+      this.recent = this.recent.filter((r) => now - r.at < ECHO_WINDOW_MS);
+      // Hors mode haut-parleur la voix est déjà jouée ; on évite seulement d'afficher un doublon.
+      const dropped = this.dropTurn || (!this.echoGuard && looksLikeEcho(translation, this.recent.map((r) => r.text)));
+      if (this.held && !dropped) { for (const data of this.held) this.play(data); }
       this.original = '';
       this.translation = '';
-      if (translation) this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
+      this.held = null;
+      this.dropTurn = false;
+      this.turnChecked = false;
+      if (!translation || dropped) return;
+      this.recent.push({ text: translation, at: Date.now() });
+      this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
     }
 
     play(base64) {
@@ -942,7 +1015,7 @@
     }
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: true,
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, suppressLocalAudioPlayback: true },
       systemAudio: 'include',
       selfBrowserSurface: 'exclude',
     });
@@ -970,8 +1043,7 @@
       filePlayer.node.connect(filePlayer.gain).connect(filePlayer.ctx.destination);
     }
     filePlayer.ctx.resume();
-    // Avec la voix de l'interprète, le son d'origine est baissé pour qu'on l'entende bien.
-    filePlayer.gain.gain.value = speakEnabled() && $('engine').value === 'live' ? 0.3 : 1;
+    filePlayer.gain.gain.value = 1;
     filePlayer.dest = filePlayer.ctx.createMediaStreamDestination();
     filePlayer.node.connect(filePlayer.dest);
     player.play().catch(() => {});
@@ -1014,6 +1086,54 @@
     } catch { /* stockage indisponible */ }
   }
 
+  // ---------- Baisse du son d'origine pendant la voix de la traduction ----------
+  // Possible quand l'application diffuse elle-même le son d'origine : fichier, ou onglet partagé sur
+  // ordinateur (l'onglet est rendu muet et l'application rejoue son son). Les autres applications
+  // d'un téléphone (YouTube, Zoom…) ne peuvent pas être contrôlées par une page web.
+  const DUCK_LEVEL = 0.2;
+  let tabReplay = null; // { ctx, gain } : son de l'onglet partagé, rejoué par l'application
+  let duckTimer = null;
+
+  function voiceActive() {
+    return !!(engine && engine.voicePlaying && engine.voicePlaying())
+      || ('speechSynthesis' in self && speechSynthesis.speaking);
+  }
+
+  function startDucking() {
+    clearInterval(duckTimer);
+    let last = 1;
+    duckTimer = setInterval(() => {
+      const target = $('duck').checked && speakEnabled() && voiceActive() ? DUCK_LEVEL : 1;
+      if (target === last) return;
+      last = target;
+      for (const { ctx, gain } of [filePlayer, tabReplay]) {
+        if (ctx && gain) gain.gain.setTargetAtTime(target, ctx.currentTime, 0.12);
+      }
+    }, 100);
+  }
+
+  function stopDucking() {
+    clearInterval(duckTimer);
+    duckTimer = null;
+    if (filePlayer.gain) filePlayer.gain.gain.value = 1;
+    if (tabReplay) { tabReplay.ctx.close(); tabReplay = null; }
+  }
+
+  // L'onglet partagé a été rendu muet par le navigateur : l'application rejoue son son.
+  function replayTab(stream, ctx) {
+    const track = stream.getAudioTracks()[0];
+    const settings = track.getSettings ? track.getSettings() : {};
+    if (!ctx || !settings.suppressLocalAudioPlayback) {
+      if (ctx) ctx.close();
+      if (speakEnabled() && $('duck').checked) showWarning('Ce navigateur ne permet pas de baisser le son de l\'onglet : baissez un peu son volume.');
+      return;
+    }
+    const gain = ctx.createGain();
+    ctx.createMediaStreamSource(stream).connect(gain).connect(ctx.destination);
+    ctx.resume();
+    tabReplay = { ctx, gain };
+  }
+
   async function start() {
     saveSettings();
     const source = $('source').value;
@@ -1023,6 +1143,7 @@
     // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
     const livePlayCtx = engineName === 'live' && speakEnabled() ? new AudioContext() : null;
     echoGuard = source === 'speaker';
+    const tabCtx = source === 'tab' ? new AudioContext() : null;
     if (source === 'file') {
       try { prepareFilePlayback(); } catch (err) { $('startBtn').disabled = false; setStatus(err.message, 'error'); return; }
     }
@@ -1052,6 +1173,7 @@
       if (engineName !== 'browser' || source !== 'mic') {
         setStatus('Choix de la source audio…');
         mediaStream = await getAudioStream(source);
+        if (source === 'tab') replayTab(mediaStream, tabCtx);
       }
 
       const handlers = {
@@ -1091,7 +1213,9 @@
           model: $('apiModel').value.trim() || 'gpt-4o-mini-transcribe',
         }, handlers);
       }
+      engine.echoGuard = echoGuard;
       await engine.start();
+      startDucking();
 
       try { wakeLock = await navigator.wakeLock.request('screen'); } catch { /* facultatif */ }
 
@@ -1101,6 +1225,7 @@
       $('stopBtn').disabled = false;
     } catch (err) {
       if (livePlayCtx && !engine) livePlayCtx.close();
+      if (tabCtx && !tabReplay) tabCtx.close().catch(() => {});
       stop();
       const msg = err.name === 'NotAllowedError' ? 'Autorisation refusée (micro ou partage d\'écran).' : err.message;
       setStatus(msg, 'error');
@@ -1113,6 +1238,7 @@
     if (mediaStream) mediaStream.getTracks().forEach((t) => t.stop());
     mediaStream = null;
     releaseFilePlayback();
+    stopDucking();
     if (wakeLock) wakeLock.release().catch(() => {});
     wakeLock = null;
     clearTimeout(interimTimer);

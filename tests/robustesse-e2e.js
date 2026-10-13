@@ -44,7 +44,7 @@ async function liveContext(browser, onSetup) {
     await p.check('#speak');
     await p.selectOption('#source', 'speaker');
     ok(await p.isEnabled('#speak') && await p.isChecked('#speak'), 'Haut-parleur : la voix de la traduction reste disponible');
-    ok(/reconnue et ignorée/.test(await p.textContent('#sourceHint')), 'Haut-parleur : la protection anti-écho est expliquée');
+    ok(/courte pause/.test(await p.textContent('#sourceHint')), 'Haut-parleur : la protection anti-écho est expliquée');
     await p.click('#startBtn');
     await p.waitForTimeout(800);
     const audio = Buffer.alloc(4800).toString('base64');
@@ -63,7 +63,7 @@ async function liveContext(browser, onSetup) {
     const hist = await p.$$eval('#history .tr', (e) => e.map((x) => x.textContent));
     console.log('   historique :', H(hist));
     ok(hist.length === 2 && hist[1] === 'Commençons.', 'Anti-répétition : la phrase répétée n\'est affichée qu\'une fois, la suivante passe');
-    ok(await p.evaluate(() => window.__played) >= 3, 'Haut-parleur : la voix de l\'interprète est bien jouée');
+    ok(await p.evaluate(() => window.__played) === 2, 'Haut-parleur : la voix est jouée pour les 2 vraies phrases, pas pour les répétitions');
     ok(liveSetup && liveSetup.generationConfig.translationConfig.echoTargetLanguage === false, 'Haut-parleur : Gemini est réglé pour ignorer ce qui est déjà dans la langue cible');
     await ctx.close();
   }

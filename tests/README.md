@@ -57,3 +57,14 @@ déjà dans la langue cible ; les autres moteurs mettent l'écoute en pause pend
 reprennent) ; une phrase renvoyée deux fois n'est affichée qu'une fois ; une session Gemini Live figée (parole
 entendue sans réponse pendant 12 s) est remplacée par une session neuve ; la reconnaissance Android qui renvoie
 tout le texte déjà reconnu ne produit que les mots nouveaux. **11/11 réussis.**
+
+## Vidéo en pause et volume d'origine (`echo-volume-e2e.js`)
+
+```bash
+node echo-volume-e2e.js fichier_audio.wav
+```
+
+Vérifie qu'en mode « Réunion sur ce téléphone » l'écho d'une traduction déjà dite est jeté (texte **et** voix)
+tandis qu'une nouvelle phrase au même début passe ; que le micro n'envoie que du silence pendant que
+l'interprète parle, puis reprend ; qu'après 1,5 s de silence (vidéo en pause) plus rien n'est envoyé à Gemini ;
+que le son d'origine d'un fichier ou d'un onglet partagé baisse pendant la voix puis remonte. **10/10 réussis.**
