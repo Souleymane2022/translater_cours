@@ -12,7 +12,8 @@ const BASE = 'http://localhost:8765/';
 const wav = path.resolve(process.argv[2]);
 const ok = (cond, label) => { console.log(`${cond ? '✅' : '❌'} ${label}`); if (!cond) process.exitCode = 1; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const VOICE = Buffer.alloc(24000 * 2 * 2).toString('base64'); // 2 s de voix (24 kHz, 16 bits)
+// 2 s de voix audible (24 kHz, 16 bits) : un son réel, pas du silence
+const VOICE = (() => { const b = Buffer.alloc(24000 * 2 * 2); for (let i = 0; i < 48000; i++) b.writeInt16LE(Math.round(8000 * Math.sin(i / 8)), i * 2); return b.toString('base64'); })();
 
 async function context(browser, { tone = true } = {}) {
   const ctx = await browser.newContext({ serviceWorkers: 'block' });

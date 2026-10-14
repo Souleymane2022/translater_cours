@@ -81,3 +81,16 @@ suivies d'une reconnexion automatique sans arrêter l'écoute, alors qu'une clé
 clair ; qu'un message inattendu ne plante rien ; et qu'une vidéo YouTube lue dans l'application voit son volume
 baisser pendant la voix, sa pause suivie, et se met en pause automatiquement si l'option est cochée.
 (Le lecteur YouTube est simulé.) **20/20 réussis.**
+
+## Comportement réel de Gemini Live (`gemini-reel-e2e.js`)
+
+```bash
+node gemini-reel-e2e.js
+```
+
+Reproduit ce qu'a montré un enregistrement d'écran sur téléphone (vidéo YouTube dans l'application) : Gemini
+envoie de l'audio en continu, y compris du silence, et ne termine jamais ses tours. Avant correction : volume
+YouTube bloqué à 20 %, micro coupé, traduction figée, historique vide (le test échoue sur l'ancienne version).
+Vérifie que le volume remonte et que le micro se rouvre dès que la voix **audible** s'arrête, que l'historique
+se remplit phrase par phrase (et après 2,5 s sans nouveau texte), et que le micro n'est jamais coupé plus de 8 s.
+**5/5 réussis.**

@@ -679,6 +679,10 @@
   const LIVE_SILENCE_MS = 1500; // au-delà, on n'envoie plus le silence (vidéo en pause…)
   const ECHO_WINDOW_MS = 120000; // une traduction qui ressemble à celles des 2 dernières minutes est un écho
   const ECHO_HOLD_WORDS = 6; // mots attendus avant de jouer la voix d'un nouveau tour (mode haut-parleur)
+  const VOICE_RMS = 0.004; // en dessous, un morceau de voix reçu est du silence
+  const MAX_MUTE_MS = 8000; // le micro n'est jamais coupé plus longtemps d'affilée (anti-écho)
+  const SENTENCE_FLUSH_CHARS = 60; // une phrase terminée de cette longueur part dans l'historique
+  const IDLE_FLUSH_MS = 2500; // sans nouveau texte pendant ce temps, la phrase en cours part dans l'historique
 
   const wordsOf = (t) => (t || '').toLowerCase().normalize('NFC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().split(' ').filter(Boolean);
 
@@ -738,6 +742,8 @@
       this.playCtx = playCtx;
       this.playAudio = !!playCtx;
       this.playAt = 0;
+      this.voiceUntil = 0; // fin du dernier morceau de voix audible (horloge du contexte de lecture)
+      this.mutedMs = 0; // durée pendant laquelle le micro est coupé d'affilée (anti-écho)
       this.handlers = handlers;
       this.running = false;
       this.ready = false;
@@ -756,9 +762,10 @@
 
     resumeInput() { this.paused = false; this.silentMs = 0; }
 
-    // La voix de l'interprète est en train d'être jouée (ou va l'être).
+    // La voix de l'interprète est audible en ce moment (ou le sera dans l'instant). Gemini envoie aussi des
+    // morceaux de silence : seuls les morceaux audibles comptent, sinon la « voix » ne s'arrêterait jamais.
     voicePlaying() {
-      return !!this.playCtx && this.playAt > 0 && this.playAt > this.playCtx.currentTime - 0.4;
+      return !!this.playCtx && this.voiceUntil > 0 && this.playCtx.currentTime < this.voiceUntil + 0.3;
     }
 
     async start() {
@@ -888,7 +895,14 @@
     onFrames(frame) {
       if (!this.running) return;
       // Micro qui entend le haut-parleur : pendant que l'interprète parle, on n'écoute pas (sinon il se retraduit).
-      if (this.echoGuard && this.voicePlaying()) frame = new Float32Array(frame.length);
+      // Sécurité : jamais plus de 8 s d'affilée, pour qu'un incident ne fige pas la traduction.
+      const frameMs = (frame.length / this.ctx.sampleRate) * 1000;
+      if (this.echoGuard && this.voicePlaying() && this.mutedMs < MAX_MUTE_MS) {
+        this.mutedMs += frameMs;
+        frame = new Float32Array(frame.length);
+      } else if (!this.voicePlaying()) {
+        this.mutedMs = 0;
+      }
       this.watchdog(frame);
       let sum = 0;
       for (const v of frame) sum += v * v;
@@ -959,10 +973,28 @@
       }
       this.checkEcho(!!sc.turnComplete);
 
-      // Une phrase est terminée : fin du tour, ou longue phrase qui se termine par une ponctuation.
-      const sentenceDone = this.translation.length > 160 && /[.!?…]\s*$/.test(this.translation);
-      if (sc.turnComplete || sentenceDone) this.flush();
-      else if (!this.dropTurn && (this.translation || this.original)) this.handlers.onLive(this.translation, this.original);
+      if (sc.turnComplete) { this.flush(); return; }
+      // Gemini ne termine pas toujours ses tours : chaque phrase finie part dans l'historique au fil de l'eau,
+      // et la phrase en cours y part aussi après 2,5 s sans nouveau texte.
+      const grew = this.translation.length !== this.lastTranslationLength;
+      this.flushSentences();
+      this.lastTranslationLength = this.translation.length;
+      // Le délai ne repart que si du texte arrive (Gemini envoie aussi des morceaux de silence en continu).
+      if (grew) {
+        clearTimeout(this.idleTimer);
+        if (this.translation.trim()) this.idleTimer = setTimeout(() => this.flush(), IDLE_FLUSH_MS);
+      }
+      if (!this.dropTurn && (this.translation || this.original)) this.handlers.onLive(this.translation, this.original);
+    }
+
+    flushSentences() {
+      if (this.dropTurn) return;
+      const m = this.translation.match(/^([^]*[.!?…؟。！？])\s+(\S[^]*)?$/);
+      if (!m || m[1].trim().length < SENTENCE_FLUSH_CHARS) return;
+      const rest = m[2] || '';
+      this.translation = m[1];
+      this.flush({ keepTurn: true });
+      this.translation = rest;
     }
 
     // Dès que le tour a assez de mots (ou se termine), on décide : écho d'une traduction récente → jeté
@@ -981,7 +1013,8 @@
       if (this.held) { for (const data of this.held) this.play(data); this.held = null; }
     }
 
-    flush() {
+    flush({ keepTurn = false } = {}) {
+      clearTimeout(this.idleTimer);
       const original = this.original.trim();
       const translation = this.translation.trim();
       const now = Date.now();
@@ -992,8 +1025,7 @@
       this.original = '';
       this.translation = '';
       this.held = null;
-      this.dropTurn = false;
-      this.turnChecked = false;
+      if (!keepTurn) { this.dropTurn = false; this.turnChecked = false; }
       if (!translation || dropped) return;
       this.recent.push({ text: translation, at: Date.now() });
       this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
@@ -1016,6 +1048,9 @@
       // Si la voix prend plus de 3 s de retard, on rattrape le direct.
       if (this.playAt < now || this.playAt - now > 3) this.playAt = now + 0.05;
       src.start(this.playAt);
+      let sum = 0;
+      for (const v of samples) sum += v * v;
+      if (samples.length && Math.sqrt(sum / samples.length) > VOICE_RMS) this.voiceUntil = Math.max(this.voiceUntil, this.playAt + buffer.duration);
       this.playAt += buffer.duration;
     }
 
