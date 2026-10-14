@@ -185,3 +185,7 @@ body.pip .stage { min-height: 100vh; border: 0; border-radius: 0; padding: 12px;
 }
 .onboarding { background: #fef9c3; color: #713f12; border-radius: 10px; padding: 12px 14px; margin: 8px 0; }
 .onboarding[hidden], #srcLangLabel[hidden] { display: none; }
+
+/* Indication « son baissé / vidéo en pause » dans la zone de traduction */
+.voice-chip { display: inline-block; margin: 0 0 10px; padding: 4px 10px; border-radius: 999px; background: rgba(250, 204, 21, .18); color: #facc15; font-size: .85rem; font-weight: 600; }
+.voice-chip[hidden] { display: none; }

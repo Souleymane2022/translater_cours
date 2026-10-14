@@ -77,9 +77,12 @@
         + '🔊 Pendant que la voix de la traduction parle, l\'écoute fait une courte pause pour ne pas la retraduire. '
         + 'Le volume de Zoom, YouTube ou WhatsApp ne peut pas être baissé par le site : baissez-le un peu vous-même.');
     } else if (source === 'youtube') {
-      hints.push('▶️ Collez le lien de la vidéo YouTube, appuyez sur « Charger », puis sur Démarrer. La vidéo est lue ici : '
-        + 'son volume baisse pendant la voix de la traduction, et la pause est suivie. Le son est capté par le micro : '
-        + 'gardez le haut-parleur (pas d\'écouteurs). Cochez « Mettre la vidéo en pause pendant la voix » pour ne rien manquer.');
+      hints.push('▶️ Collez le lien de la vidéo YouTube, appuyez sur « Charger », puis sur Démarrer. La vidéo est lue ici et '
+        + 'la pause est suivie. Le son est capté par le micro : gardez le haut-parleur (pas d\'écouteurs), volume au maximum. '
+        + (isMobile
+          ? 'Sur téléphone, YouTube ne laisse pas baisser son volume : la vidéo se met en pause pendant la voix de la traduction, '
+            + 'puis repart seule (rien n\'est manqué).'
+          : 'Son volume baisse pendant la voix de la traduction ; cochez « Mettre la vidéo en pause pendant la voix » pour ne rien manquer.'));
     } else if (source === 'file') {
       hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
         + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
@@ -197,6 +200,14 @@
 
   // Sources dont l'application contrôle la lecture (volume, pause).
   const controlledSource = () => ['file', 'youtube'].includes($('source').value);
+
+  // Sur téléphone, YouTube ignore les changements de volume demandés par une page : pour qu'on entende la
+  // traduction, la vidéo est mise en pause pendant la voix (seule méthode fiable).
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  function autoPauseWanted() {
+    if (!controlledSource()) return false;
+    return $('autoPause').checked || ($('source').value === 'youtube' && isMobile && $('duck').checked);
+  }
 
   // Anti-écho en mode « Réunion sur ce téléphone » : le micro, sans annulation d'écho, entend aussi la voix
   // de la traduction. Gemini Live la reconnaît (déjà dans la langue cible) et l'ignore ; pour les autres
@@ -1297,7 +1308,7 @@
       if (voice) voiceEndedAt = 0; else if (!voiceEndedAt) voiceEndedAt = Date.now();
 
       // Pause automatique : la vidéo attend que l'interprète ait fini (rien n'est manqué).
-      if (controlledSource() && $('autoPause').checked) {
+      if (autoPauseWanted()) {
         if (voice && !autoPaused && mediaIsPlaying()) { autoPaused = true; pauseMedia(); }
         else if (!voice && autoPaused && Date.now() - voiceEndedAt > 400) { playMedia(); setTimeout(() => { autoPaused = false; }, 300); }
       }
@@ -1305,12 +1316,18 @@
       const target = $('duck').checked && voice ? DUCK_LEVEL : 1;
       $('duckBadge').hidden = target === 1 && !autoPaused;
       $('duckBadge').textContent = autoPaused ? '⏸' : '🔉';
+      // Même indication dans la zone de traduction (le haut de l'écran sort de la vue en faisant défiler).
+      const chip = stageDoc().getElementById('voiceChip');
+      if (chip) {
+        chip.hidden = !autoPaused && target === 1;
+        chip.textContent = autoPaused ? '⏸ Vidéo en pause le temps de la traduction' : '🔉 Son de la vidéo baissé';
+      }
       if (target === last) return;
       last = target;
       for (const audio of [filePlayer, tabReplay]) {
         if (audio && audio.ctx && audio.gain) audio.gain.gain.setTargetAtTime(target, audio.ctx.currentTime, 0.12);
       }
-      if ($('source').value === 'youtube' && yt.player && yt.player.setVolume) yt.player.setVolume(Math.round(target * 100));
+      if ($('source').value === 'youtube' && !isMobile && yt.player && yt.player.setVolume) yt.player.setVolume(Math.round(target * 100));
     }, 100);
   }
 
@@ -1318,6 +1335,8 @@
     clearInterval(duckTimer);
     duckTimer = null;
     $('duckBadge').hidden = true;
+    const chip = stageDoc().getElementById('voiceChip');
+    if (chip) chip.hidden = true;
     if (autoPaused) { autoPaused = false; }
     if (yt.player && yt.player.setVolume) yt.player.setVolume(100);
     if (filePlayer.gain) filePlayer.gain.gain.value = 1;

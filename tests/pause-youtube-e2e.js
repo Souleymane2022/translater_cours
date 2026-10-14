@@ -26,8 +26,8 @@ const FAKE_YT = `window.YT = { Player: class {
   cueVideoById() {}
 } }; setTimeout(() => window.onYouTubeIframeAPIReady(), 10);`;
 
-async function context(browser, onSetup = (ws) => ws.send(JSON.stringify({ setupComplete: {} }))) {
-  const ctx = await browser.newContext({ serviceWorkers: 'block' });
+async function context(browser, onSetup = (ws) => ws.send(JSON.stringify({ setupComplete: {} })), options = {}) {
+  const ctx = await browser.newContext({ serviceWorkers: 'block', ...options });
   await ctx.addInitScript(() => {
     navigator.mediaDevices.getUserMedia = async () => {
       const ac = new AudioContext(); const o = ac.createOscillator(); const g = ac.createGain();
@@ -163,6 +163,25 @@ const history = (p) => p.$$eval('#history .tr', (e) => e.map((x) => x.textConten
       ok(stateDuring === 2 && await p.evaluate(() => window.__ytp.state) === 1, 'YouTube : pause automatique pendant la voix, puis la vidéo repart seule');
       ok(/Écoute en cours/.test(await status(p)), 'YouTube : la pause automatique n\'affiche pas « En pause »');
     }
+    await ctx.close();
+  }
+  // 5. Téléphone Android : YouTube ignore les changements de volume → pause pendant la voix
+  {
+    const android = { userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Mobile Safari/537.36', viewport: { width: 412, height: 915 } };
+    const { ctx, turn } = await context(browser, undefined, android);
+    const p = await ctx.newPage();
+    await live(p, 'youtube', true);
+    await p.check('#duck'); await p.uncheck('#autoPause');
+    ok(/Sur téléphone, YouTube ne laisse pas baisser son volume/.test(await p.textContent('#sourceHint')), 'Téléphone : l\'aide explique la pause pendant la voix');
+    await p.fill('#ytUrl', 'https://youtu.be/6erL5SW3vZc'); await p.click('#ytLoad'); await sleep(400);
+    await p.click('#startBtn'); await sleep(1200);
+    turn('Je ne sais pas où cela nous mènera, mais cela aura un grand impact.'); await sleep(700);
+    const during = await p.evaluate(() => window.__ytp.state);
+    const chip = await p.textContent('#voiceChip');
+    await sleep(3000);
+    ok(during === 2 && await p.evaluate(() => window.__ytp.state) === 1, 'Téléphone : la vidéo se met en pause pendant la voix puis repart seule');
+    ok(/en pause le temps de la traduction/.test(chip), 'Téléphone : l\'indication s\'affiche dans la zone de traduction');
+    ok((await p.evaluate(() => window.__vols)).length === 0, 'Téléphone : plus de tentative de changer le volume de YouTube (sans effet sur mobile)');
     await ctx.close();
   }
   await browser.close();

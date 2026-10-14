@@ -80,7 +80,7 @@ la lecture ; que les coupures passagères (quota par minute, erreur serveur, pre
 suivies d'une reconnexion automatique sans arrêter l'écoute, alors qu'une clé refusée arrête avec un message
 clair ; qu'un message inattendu ne plante rien ; et qu'une vidéo YouTube lue dans l'application voit son volume
 baisser pendant la voix, sa pause suivie, et se met en pause automatiquement si l'option est cochée.
-(Le lecteur YouTube est simulé.) **20/20 réussis.**
+Sur téléphone (Android simulé), la vidéo se met en pause pendant la voix, car YouTube y ignore les changements de volume. (Le lecteur YouTube est simulé.) **24/24 réussis.**
 
 ## Comportement réel de Gemini Live (`gemini-reel-e2e.js`)
 
