@@ -209,15 +209,11 @@
 
   function speak(text) {
     if (!speakEnabled() || !('speechSynthesis' in self) || !text) return;
-    // Si on prend trop de retard sur l'orateur, on abandonne les anciennes phrases.
-    if (pendingUtterances > 2) {
-      speechSynthesis.cancel();
-      pendingUtterances = 0;
-    }
+    // Aucune phrase n'est abandonnée : si des phrases attendent, la voix parle un peu plus vite.
     const lang = $('tgtLang').value;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = lang;
-    u.rate = 1.1;
+    u.rate = pendingUtterances >= 2 ? 1.3 : pendingUtterances === 1 ? 1.2 : 1.1;
     const voice = speechSynthesis.getVoices().find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase()));
     if (voice) u.voice = voice;
     pendingUtterances++;
@@ -680,6 +676,7 @@
   const ECHO_WINDOW_MS = 120000; // une traduction qui ressemble à celles des 2 dernières minutes est un écho
   const ECHO_HOLD_WORDS = 6; // mots attendus avant de jouer la voix d'un nouveau tour (mode haut-parleur)
   const VOICE_RMS = 0.004; // en dessous, un morceau de voix reçu est du silence
+  const VOICE_CATCHUP_S = 0.4; // retard au-delà duquel les silences en attente sont retirés
   const MAX_MUTE_MS = 8000; // le micro n'est jamais coupé plus longtemps d'affilée (anti-écho)
   const SENTENCE_FLUSH_CHARS = 60; // une phrase terminée de cette longueur part dans l'historique
   const IDLE_FLUSH_MS = 2500; // sans nouveau texte pendant ce temps, la phrase en cours part dans l'historique
@@ -1031,27 +1028,37 @@
       this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
     }
 
+    // Joue un morceau de la voix de l'interprète. Gemini l'envoie par rafales, plus vite que le temps réel,
+    // avec des morceaux de silence : la parole n'est jamais sautée ni superposée ; quand la voix prend du
+    // retard, on retire les silences en attente et on accélère légèrement (15 % au plus) pour rattraper.
     play(base64) {
       const bin = atob(base64);
       const samples = new Float32Array(bin.length >> 1);
+      let sum = 0;
       for (let i = 0; i < samples.length; i++) {
         let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
         if (v >= 0x8000) v -= 0x10000;
         samples[i] = v / 0x8000;
+        sum += samples[i] * samples[i];
       }
+      if (!samples.length) return;
+      const audible = Math.sqrt(sum / samples.length) > VOICE_RMS;
+      const now = this.playCtx.currentTime;
+      if (this.playAt < now) this.playAt = now + 0.05;
+      const backlog = this.playAt - now;
+      // En retard : un silence en attente ne ferait qu'ajouter du retard.
+      if (!audible && backlog > VOICE_CATCHUP_S) return;
       const buffer = this.playCtx.createBuffer(1, samples.length, LIVE_OUTPUT_RATE);
       buffer.copyToChannel(samples, 0);
       const src = this.playCtx.createBufferSource();
       src.buffer = buffer;
+      const rate = audible && backlog > 4 ? 1.15 : audible && backlog > 2 ? 1.08 : 1;
+      src.playbackRate.value = rate;
       src.connect(this.playCtx.destination);
-      const now = this.playCtx.currentTime;
-      // Si la voix prend plus de 3 s de retard, on rattrape le direct.
-      if (this.playAt < now || this.playAt - now > 3) this.playAt = now + 0.05;
       src.start(this.playAt);
-      let sum = 0;
-      for (const v of samples) sum += v * v;
-      if (samples.length && Math.sqrt(sum / samples.length) > VOICE_RMS) this.voiceUntil = Math.max(this.voiceUntil, this.playAt + buffer.duration);
-      this.playAt += buffer.duration;
+      const duration = buffer.duration / rate;
+      if (audible) this.voiceUntil = Math.max(this.voiceUntil, this.playAt + duration);
+      this.playAt += duration;
     }
 
     // Fin d'un fichier : on attend que Gemini ait fini de traduire (2,5 s sans message, 20 s au plus).

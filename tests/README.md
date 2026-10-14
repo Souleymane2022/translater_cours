@@ -94,3 +94,16 @@ YouTube bloqué à 20 %, micro coupé, traduction figée, historique vide (le te
 Vérifie que le volume remonte et que le micro se rouvre dès que la voix **audible** s'arrête, que l'historique
 se remplit phrase par phrase (et après 2,5 s sans nouveau texte), et que le micro n'est jamais coupé plus de 8 s.
 **5/5 réussis.**
+
+## Voix complète et sans coupure (`voix-sync-e2e.js`)
+
+```bash
+node voix-sync-e2e.js
+```
+
+Gemini envoie la voix par rafales, plus vite que le temps réel, mêlée de silences. Avant correction, au-delà de
+3 s de retard l'application « sautait au direct » : 46 morceaux se superposaient dans une rafale de 5 s et la
+voix était hachée (le test échoue sur l'ancienne version). Vérifie que toute la parole est jouée sans
+superposition, que les silences en attente sont retirés, que la voix accélère au plus de 15 % ; et que la
+synthèse vocale des autres moteurs lit toutes les phrases (aucune abandonnée), un peu plus vite si elles
+s'accumulent. **6/6 réussis.**
