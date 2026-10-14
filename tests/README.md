@@ -104,6 +104,7 @@ node voix-sync-e2e.js
 Gemini envoie la voix par rafales, plus vite que le temps réel, mêlée de silences. Avant correction, au-delà de
 3 s de retard l'application « sautait au direct » : 46 morceaux se superposaient dans une rafale de 5 s et la
 voix était hachée (le test échoue sur l'ancienne version). Vérifie que toute la parole est jouée sans
-superposition, que les silences en attente sont retirés, que la voix accélère au plus de 15 % ; et que la
-synthèse vocale des autres moteurs lit toutes les phrases (aucune abandonnée), un peu plus vite si elles
-s'accumulent. **6/6 réussis.**
+superposition, que les silences en attente sont retirés, que la voix accélère au plus de 15 % ; que sur une
+connexion irrégulière (morceaux arrivant jusqu'à 180 ms en retard) la voix reste continue, sans trous, et que
+sa vitesse ne change pas en permanence ; et que la synthèse vocale des autres moteurs lit toutes les phrases
+(aucune abandonnée), un peu plus vite si elles s'accumulent. **8/8 réussis.**

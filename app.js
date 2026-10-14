@@ -75,7 +75,9 @@
         + 'Certains téléphones coupent le micro des autres applications pendant un appel : dans ce cas, utilisez un 2ᵉ appareil '
         + 'posé à côté, ou rejoignez la réunion depuis un ordinateur. '
         + '🔊 Pendant que la voix de la traduction parle, l\'écoute fait une courte pause pour ne pas la retraduire. '
-        + 'Le volume de Zoom, YouTube ou WhatsApp ne peut pas être baissé par le site : baissez-le un peu vous-même.');
+        + '🔉 Android et iPhone interdisent à un site de baisser le son d\'une autre application (Zoom, Meet, WhatsApp) : '
+        + 'baissez un peu le volume de l\'appel avec les boutons du téléphone, ou suivez la réunion sur ordinateur, '
+        + 'où le son de Meet, Zoom ou Teams est baissé automatiquement.');
     } else if (source === 'youtube') {
       hints.push('▶️ Collez le lien de la vidéo YouTube, appuyez sur « Charger », puis sur Démarrer. La vidéo est lue ici et '
         + 'la pause est suivie. Le son est capté par le micro : gardez le haut-parleur (pas d\'écouteurs), volume au maximum. '
@@ -87,9 +89,10 @@
       hints.push('Choisissez un cours enregistré, une vidéo téléchargée ou un message vocal : il est traduit pendant la lecture. '
         + 'Astuce Android : dans WhatsApp ou la galerie, « Partager » → « Traducteur de Cours » (application installée).');
     } else {
-      hints.push('Une fenêtre va s\'ouvrir : choisissez l\'onglet de la réunion (Zoom web, Google Meet, Teams web, YouTube…) '
-        + 'et cochez « Partager l\'audio de l\'onglet ». Pour l\'application Zoom de bureau, choisissez « Écran entier » '
-        + 'et cochez « Partager l\'audio du système » (Windows).');
+      hints.push('Une fenêtre va s\'ouvrir : choisissez l\'onglet du site (Google Meet, Zoom web, Teams web, Coursera, YouTube…) '
+        + 'et cochez « Partager l\'audio de l\'onglet ». Le son de cet onglet est baissé automatiquement pendant la voix de la traduction. '
+        + 'Pour l\'application Zoom de bureau, choisissez « Écran entier » et cochez « Partager l\'audio du système » (Windows) ; '
+        + 'le son d\'une application ne peut pas être baissé : ouvrez plutôt Zoom dans le navigateur (app.zoom.us) pour en profiter.');
       if (engine === 'browser') {
         hints.push('Si votre navigateur ne sait pas reconnaître l\'audio d\'un onglet, il écoutera le micro à la place : '
           + 'dans ce cas, utilisez le moteur Whisper (clé gratuite chez Groq).');
@@ -140,7 +143,7 @@
     if (!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia)) {
       const tab = $('source').querySelector('option[value="tab"]');
       tab.disabled = true;
-      tab.textContent = '🖥️ Audio d\'un onglet (sur ordinateur uniquement)';
+      tab.textContent = '🖥️ Site web dans un onglet (sur ordinateur uniquement)';
       $('source').value = 'mic';
     }
     if (!('documentPictureInPicture' in self) && !videoPipSupported()) $('pipBtn').hidden = true;
@@ -688,6 +691,7 @@
   const ECHO_HOLD_WORDS = 6; // mots attendus avant de jouer la voix d'un nouveau tour (mode haut-parleur)
   const VOICE_RMS = 0.004; // en dessous, un morceau de voix reçu est du silence
   const VOICE_CATCHUP_S = 0.4; // retard au-delà duquel les silences en attente sont retirés
+  const VOICE_JITTER_S = 0.3; // réserve au début d'une phrase, contre les irrégularités du réseau
   const MAX_MUTE_MS = 8000; // le micro n'est jamais coupé plus longtemps d'affilée (anti-écho)
   const SENTENCE_FLUSH_CHARS = 60; // une phrase terminée de cette longueur part dans l'historique
   const IDLE_FLUSH_MS = 2500; // sans nouveau texte pendant ce temps, la phrase en cours part dans l'historique
@@ -751,6 +755,8 @@
       this.playAudio = !!playCtx;
       this.playAt = 0;
       this.voiceUntil = 0; // fin du dernier morceau de voix audible (horloge du contexte de lecture)
+      this.rate = 1; // vitesse de la voix (légèrement accélérée pour rattraper un retard)
+      this.rateChangedAt = -10;
       this.mutedMs = 0; // durée pendant laquelle le micro est coupé d'affilée (anti-écho)
       this.handlers = handlers;
       this.running = false;
@@ -1039,9 +1045,13 @@
       this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
     }
 
-    // Joue un morceau de la voix de l'interprète. Gemini l'envoie par rafales, plus vite que le temps réel,
-    // avec des morceaux de silence : la parole n'est jamais sautée ni superposée ; quand la voix prend du
-    // retard, on retire les silences en attente et on accélère légèrement (15 % au plus) pour rattraper.
+    // Joue un morceau de la voix de l'interprète. Gemini l'envoie par rafales et de façon irrégulière, mêlée
+    // de silences. Pour une voix fluide :
+    //  - réserve de 0,3 s au début de chaque phrase (et après un manque), pour absorber les irrégularités
+    //    du réseau au lieu de les entendre ;
+    //  - la parole n'est jamais sautée ni superposée ; les silences ne sont gardés qu'à l'intérieur d'une
+    //    phrase, et retirés quand la voix est en retard ;
+    //  - pour rattraper un retard, la vitesse change au plus toutes les 3 s, par petites étapes.
     play(base64) {
       const bin = atob(base64);
       const samples = new Float32Array(bin.length >> 1);
@@ -1055,19 +1065,23 @@
       if (!samples.length) return;
       const audible = Math.sqrt(sum / samples.length) > VOICE_RMS;
       const now = this.playCtx.currentTime;
-      if (this.playAt < now) this.playAt = now + 0.05;
+      const idle = this.playAt < now;
+      if (!audible && (idle || this.playAt - now > VOICE_CATCHUP_S)) return; // silence inutile
+      if (idle) this.playAt = now + VOICE_JITTER_S; // nouvelle phrase ou manque : petite réserve
+
       const backlog = this.playAt - now;
-      // En retard : un silence en attente ne ferait qu'ajouter du retard.
-      if (!audible && backlog > VOICE_CATCHUP_S) return;
+      if (now - this.rateChangedAt > 3) {
+        const target = backlog > 4 ? 1.1 : backlog > 2 ? 1.05 : 1;
+        if (target !== this.rate) { this.rate = target; this.rateChangedAt = now; }
+      }
       const buffer = this.playCtx.createBuffer(1, samples.length, LIVE_OUTPUT_RATE);
       buffer.copyToChannel(samples, 0);
       const src = this.playCtx.createBufferSource();
       src.buffer = buffer;
-      const rate = audible && backlog > 4 ? 1.15 : audible && backlog > 2 ? 1.08 : 1;
-      src.playbackRate.value = rate;
+      src.playbackRate.value = this.rate;
       src.connect(this.playCtx.destination);
       src.start(this.playAt);
-      const duration = buffer.duration / rate;
+      const duration = buffer.duration / this.rate;
       if (audible) this.voiceUntil = Math.max(this.voiceUntil, this.playAt + duration);
       this.playAt += duration;
     }

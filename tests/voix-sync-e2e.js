@@ -55,6 +55,26 @@ const chunk = (audible) => {
   ok(silences < 30, 'Les silences en attente sont retirés quand la voix est en retard');
   ok(maxRate <= 1.15, 'La voix accélère au plus de 15 % pour rattraper');
 
+  // Connexion irrégulière : 4 s de voix en temps réel, chaque morceau arrivant avec un retard aléatoire.
+  await sleep(6000);
+  await p.evaluate(() => { window.__plays = []; });
+  let seed = 7; const rand = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const t0 = Date.now();
+  for (let i = 0; i < 40; i++) {
+    const due = t0 + i * 100 + rand() * 180; // jusqu'à 180 ms de retard
+    await sleep(Math.max(0, due - Date.now()));
+    ws.send(JSON.stringify({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: chunk(true) } }] } } }));
+  }
+  await sleep(800);
+  const live = (await p.evaluate(() => window.__plays)).filter((x) => x.audible).sort((a, b) => a.when - b.when);
+  let gaps = 0;
+  for (let i = 1; i < live.length; i++) if (live[i].when > live[i - 1].when + live[i - 1].dur + 0.005) gaps++;
+  let rateChanges = 0;
+  for (let i = 1; i < live.length; i++) if (live[i].rate !== live[i - 1].rate) rateChanges++;
+  console.log(`   connexion irrégulière : ${live.length}/40 morceaux · trous dans la voix : ${gaps} · changements de vitesse : ${rateChanges}`);
+  ok(live.length === 40 && gaps === 0, 'Connexion irrégulière : la voix reste continue, sans trous');
+  ok(rateChanges <= 1, 'La vitesse de la voix ne change pas en permanence');
+
   // Autres moteurs : la synthèse vocale du téléphone ne doit abandonner aucune phrase.
   const ctx2 = await browser.newContext({ serviceWorkers: 'block' });
   await ctx2.addInitScript(() => {

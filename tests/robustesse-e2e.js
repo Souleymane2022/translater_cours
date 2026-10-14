@@ -47,7 +47,7 @@ async function liveContext(browser, onSetup) {
     ok(/courte pause/.test(await p.textContent('#sourceHint')), 'Haut-parleur : la protection anti-écho est expliquée');
     await p.click('#startBtn');
     await p.waitForTimeout(800);
-    const audio = Buffer.alloc(4800).toString('base64');
+    const audio = (() => { const b = Buffer.alloc(4800); for (let i = 0; i < 2400; i++) b.writeInt16LE(Math.round(8000 * Math.sin(i / 8)), i * 2); return b.toString('base64'); })(); // 100 ms de voix audible
     const turn = (en, fr) => {
       live.send(JSON.stringify({ serverContent: { inputTranscription: { text: en }, outputTranscription: { text: fr }, modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: audio } }] } } }));
       live.send(JSON.stringify({ serverContent: { turnComplete: true } }));
