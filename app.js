@@ -218,11 +218,23 @@
   let echoGuard = false;
   let voiceQuietUntil = 0;
   function muteForVoice() {
-    return echoGuard && (('speechSynthesis' in self && speechSynthesis.speaking) || Date.now() < voiceQuietUntil);
+    return echoGuard && (('speechSynthesis' in self && speechSynthesis.speaking) || Date.now() < voiceQuietUntil || ttsPlaying());
   }
 
   function speak(text) {
-    if (!speakEnabled() || !('speechSynthesis' in self) || !text) return;
+    if (!speakEnabled() || !text) return;
+    // Le téléphone n'a pas de voix pour cette langue (souvent l'arabe) : voix de secours de Google.
+    if (!phoneHasVoice($('tgtLang').value) && $('geminiKey').value.trim()) { speakFallback(text); return; }
+    speakPhone(text);
+  }
+
+  function speakPhone(text) {
+    if (!('speechSynthesis' in self)) return;
+    if (!phoneHasVoice($('tgtLang').value) && !voiceWarned) {
+      voiceWarned = true;
+      showWarning(`Ce téléphone n'a pas de voix « ${$('tgtLang').selectedOptions[0].textContent} » : ajoutez-la dans Paramètres → `
+        + 'Synthèse vocale, ou renseignez une clé Gemini pour utiliser la voix de Google.');
+    }
     // Aucune phrase n'est abandonnée : si des phrases attendent, la voix parle un peu plus vite.
     const lang = $('tgtLang').value;
     const u = new SpeechSynthesisUtterance(text);
@@ -236,6 +248,109 @@
       voiceQuietUntil = Date.now() + 700; // la fin de la voix résonne encore un peu
     };
     speechSynthesis.speak(u);
+  }
+
+  // ---------- Voix de secours ----------
+  // Quand une langue arrive sans voix (Gemini Live) ou que le téléphone n'a pas de voix pour cette langue
+  // (l'arabe est souvent absent), la phrase est lue par la synthèse vocale de Google (Gemini TTS), avec la
+  // même clé ; sans clé, par la voix du téléphone.
+
+  const TTS_MODELS = ['gemini-3.8-flash-lite-tts', 'gemini-3.8-flash-tts', 'gemini-3.1-flash-tts-preview'];
+  let ttsQueue = Promise.resolve();
+  let ttsPlayer = null; // { ctx, at, until } pour les moteurs autres que Gemini Live
+  let voiceWarned = false;
+
+  function phoneHasVoice(lang) {
+    const voices = 'speechSynthesis' in self ? speechSynthesis.getVoices() : [];
+    if (!voices.length) return true; // liste pas encore chargée : on essaie quand même
+    return voices.some((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase().split('-')[0]));
+  }
+
+  // Extrait le son d'une réponse Gemini TTS : WAV, ou PCM 16 bits brut (24 kHz).
+  function ttsPcm(base64) {
+    const bin = atob(base64);
+    if (bin.slice(0, 4) !== 'RIFF') return { pcm: base64, rate: 24000 };
+    let off = 12; let rate = 24000;
+    while (off + 8 <= bin.length) {
+      const id = bin.slice(off, off + 4);
+      const size = bin.charCodeAt(off + 4) | (bin.charCodeAt(off + 5) << 8) | (bin.charCodeAt(off + 6) << 16) | (bin.charCodeAt(off + 7) << 24);
+      if (id === 'fmt ') rate = bin.charCodeAt(off + 12) | (bin.charCodeAt(off + 13) << 8) | (bin.charCodeAt(off + 14) << 16);
+      if (id === 'data') return { pcm: btoa(bin.slice(off + 8, off + 8 + size)), rate };
+      off += 8 + size + (size % 2);
+    }
+    return { pcm: '', rate };
+  }
+
+  async function geminiTts(text) {
+    let lastErr;
+    for (const model of TTS_MODELS) {
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': $('geminiKey').value.trim() },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text }] }],
+            generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } } },
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(`HTTP ${res.status}${data.error ? ` — ${data.error.message}` : ''}`);
+        const part = ((data.candidates || [])[0] || {}).content;
+        const audio = part && part.parts && part.parts.find((x) => x.inlineData && x.inlineData.data);
+        if (audio) return ttsPcm(audio.inlineData.data);
+        throw new Error('réponse sans audio');
+      } catch (err) { lastErr = err; }
+    }
+    throw lastErr;
+  }
+
+  // Joue du PCM 16 bits : par le lecteur de Gemini Live (même file, même fluidité), sinon par un lecteur simple.
+  function playPcm({ pcm, rate }) {
+    if (!pcm) return;
+    if (engine && engine.play && engine.playCtx && rate === 24000) {
+      const chunk = 4800 * 4; // découpé en morceaux de 0,4 s, comme la voix de Gemini
+      const bin = atob(pcm);
+      for (let i = 0; i < bin.length; i += chunk) engine.play(btoa(bin.slice(i, i + chunk)), { native: false });
+      return;
+    }
+    if (!ttsPlayer) return;
+    const bin = atob(pcm);
+    const samples = new Float32Array(bin.length >> 1);
+    for (let i = 0; i < samples.length; i++) {
+      let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+      if (v >= 0x8000) v -= 0x10000;
+      samples[i] = v / 0x8000;
+    }
+    const buffer = ttsPlayer.ctx.createBuffer(1, samples.length, rate);
+    buffer.copyToChannel(samples, 0);
+    const src = ttsPlayer.ctx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(ttsPlayer.ctx.destination);
+    const now = ttsPlayer.ctx.currentTime;
+    ttsPlayer.at = Math.max(ttsPlayer.at, now + 0.05);
+    src.start(ttsPlayer.at);
+    ttsPlayer.at += buffer.duration;
+    ttsPlayer.until = ttsPlayer.at;
+  }
+
+  // Lit une phrase avec la voix de secours (dans l'ordre des phrases).
+  function speakFallback(text) {
+    if (!speakEnabled() || !text) return;
+    if ($('geminiKey').value.trim()) {
+      const audio = geminiTts(text); // demandé tout de suite, joué dans l'ordre
+      ttsQueue = ttsQueue.then(async () => {
+        try { playPcm(await audio); } catch (err) {
+          showWarning(`Voix de secours indisponible (${err.message}) : voix du téléphone utilisée.`);
+          speakPhone(text);
+        }
+      });
+      return;
+    }
+    speakPhone(text);
+  }
+
+  function ttsPlaying() {
+    return !!(ttsPlayer && ttsPlayer.ctx.currentTime < ttsPlayer.until + 0.3);
   }
 
   // ---------- Traduction ----------
@@ -692,6 +807,7 @@
   const VOICE_RMS = 0.004; // en dessous, un morceau de voix reçu est du silence
   const VOICE_CATCHUP_S = 0.4; // retard au-delà duquel les silences en attente sont retirés
   const VOICE_JITTER_S = 0.3; // réserve au début d'une phrase, contre les irrégularités du réseau
+  const NATIVE_AUDIO_WAIT_MS = 4000; // sans voix de Gemini après le premier texte : voix de secours
   const MAX_MUTE_MS = 8000; // le micro n'est jamais coupé plus longtemps d'affilée (anti-écho)
   const SENTENCE_FLUSH_CHARS = 60; // une phrase terminée de cette longueur part dans l'historique
   const IDLE_FLUSH_MS = 2500; // sans nouveau texte pendant ce temps, la phrase en cours part dans l'historique
@@ -756,6 +872,8 @@
       this.playAt = 0;
       this.voiceUntil = 0; // fin du dernier morceau de voix audible (horloge du contexte de lecture)
       this.rate = 1; // vitesse de la voix (légèrement accélérée pour rattraper un retard)
+      this.nativeAudio = 'inconnu'; // Gemini envoie-t-il sa voix ? 'oui' / 'non' (voix de secours) / 'inconnu'
+      this.unvoiced = []; // phrases affichées en attendant de savoir si Gemini les dira
       this.rateChangedAt = -10;
       this.mutedMs = 0; // durée pendant laquelle le micro est coupé d'affilée (anti-écho)
       this.handlers = handlers;
@@ -973,7 +1091,10 @@
       if (!sc) return;
       if (sc.inputTranscription || sc.outputTranscription || sc.modelTurn) this.speechWithoutReply = 0;
       if (sc.inputTranscription && sc.inputTranscription.text) this.original += sc.inputTranscription.text;
-      if (sc.outputTranscription && sc.outputTranscription.text) this.translation += sc.outputTranscription.text;
+      if (sc.outputTranscription && sc.outputTranscription.text) {
+        this.translation += sc.outputTranscription.text;
+        this.watchNativeAudio();
+      }
       if (this.playAudio && sc.modelTurn && sc.modelTurn.parts) {
         for (const part of sc.modelTurn.parts) {
           if (!part.inlineData || !part.inlineData.data || this.dropTurn) continue;
@@ -1043,6 +1164,22 @@
       if (!translation || dropped) return;
       this.recent.push({ text: translation, at: Date.now() });
       this.handlers.onFinal(original || '—', translation, { spoken: this.playAudio });
+      // Pas de voix de Gemini pour cette langue : la phrase est lue par la voix de secours.
+      if (this.playAudio && this.nativeAudio === 'non') this.handlers.onSpeak(translation);
+      else if (this.playAudio && this.nativeAudio === 'inconnu') this.unvoiced.push(translation);
+    }
+
+    // Certaines langues (l'arabe, par exemple) peuvent arriver en texte sans voix. Si aucune voix audible
+    // n'arrive dans les 4 s qui suivent le premier texte, la voix de secours prend le relais.
+    watchNativeAudio() {
+      if (!this.playAudio || this.nativeAudio !== 'inconnu' || this.nativeAudioTimer) return;
+      this.nativeAudioTimer = setTimeout(() => {
+        if (this.nativeAudio !== 'inconnu' || !this.running) return;
+        this.nativeAudio = 'non';
+        this.handlers.onNoNativeVoice();
+        if (this.translation.trim()) this.flush({ keepTurn: true });
+        for (const text of this.unvoiced.splice(0)) this.handlers.onSpeak(text);
+      }, NATIVE_AUDIO_WAIT_MS);
     }
 
     // Joue un morceau de la voix de l'interprète. Gemini l'envoie par rafales et de façon irrégulière, mêlée
@@ -1052,7 +1189,7 @@
     //  - la parole n'est jamais sautée ni superposée ; les silences ne sont gardés qu'à l'intérieur d'une
     //    phrase, et retirés quand la voix est en retard ;
     //  - pour rattraper un retard, la vitesse change au plus toutes les 3 s, par petites étapes.
-    play(base64) {
+    play(base64, { native = true } = {}) {
       const bin = atob(base64);
       const samples = new Float32Array(bin.length >> 1);
       let sum = 0;
@@ -1064,6 +1201,7 @@
       }
       if (!samples.length) return;
       const audible = Math.sqrt(sum / samples.length) > VOICE_RMS;
+      if (native) this.noteNativeAudio(audible);
       const now = this.playCtx.currentTime;
       const idle = this.playAt < now;
       if (!audible && (idle || this.playAt - now > VOICE_CATCHUP_S)) return; // silence inutile
@@ -1086,6 +1224,14 @@
       this.playAt += duration;
     }
 
+    // Voix envoyée par Gemini Live (et non par la voix de secours).
+    noteNativeAudio(audible) {
+      if (!audible || this.nativeAudio === 'oui') return;
+      if (this.nativeAudio === 'non') this.handlers.onNativeVoiceBack();
+      this.nativeAudio = 'oui';
+      this.unvoiced = [];
+    }
+
     // Fin d'un fichier : on attend que Gemini ait fini de traduire (2,5 s sans message, 20 s au plus).
     async finish() {
       const t0 = performance.now();
@@ -1099,6 +1245,7 @@
     stop() {
       this.running = false;
       this.ready = false;
+      clearTimeout(this.nativeAudioTimer);
       this.flush();
       if (this.ws) { this.ws.onclose = null; this.ws.close(); }
       if (this.ctx) this.ctx.close();
@@ -1301,7 +1448,7 @@
 
   function voiceActive() {
     return !!(engine && engine.voicePlaying && engine.voicePlaying())
-      || ('speechSynthesis' in self && speechSynthesis.speaking);
+      || ('speechSynthesis' in self && speechSynthesis.speaking) || ttsPlaying();
   }
 
   let autoPaused = false; // la vidéo a été mise en pause par l'application, le temps de la voix
@@ -1381,6 +1528,10 @@
     // Créé avant toute attente, tant que le clic compte encore comme geste de l'utilisateur.
     const livePlayCtx = watchContext(engineName === 'live' && speakEnabled() ? new AudioContext() : null);
     echoGuard = source === 'speaker' || source === 'youtube';
+    // Lecteur de la voix de secours (autres moteurs), créé pendant le clic pour être autorisé à jouer.
+    if (ttsPlayer) { ttsPlayer.ctx.close().catch(() => {}); ttsPlayer = null; }
+    if (engineName !== 'live' && speakEnabled()) ttsPlayer = { ctx: watchContext(new AudioContext()), at: 0, until: 0 };
+    ttsQueue = Promise.resolve();
     const tabCtx = watchContext(source === 'tab' ? new AudioContext() : null);
     if (source === 'file') {
       try { prepareFilePlayback(); } catch (err) { $('startBtn').disabled = false; setStatus(err.message, 'error'); return; }
@@ -1428,6 +1579,9 @@
         onFinal,
         onWarning: (msg) => { console.warn(msg); showWarning(msg); },
         onFatal: (msg) => { stop(); setStatus(msg, 'error'); },
+        onSpeak: speakFallback,
+        onNoNativeVoice: () => showWarning('Gemini n\'envoie pas de voix pour cette langue : la voix de secours de Google lit la traduction.'),
+        onNativeVoiceBack: () => {},
         onReconnecting: (on) => {
           if (!engine) return;
           if (on) setStatus('🔄 Reconnexion à Gemini…', 'listening');
@@ -1493,6 +1647,7 @@
     mediaStream = null;
     releaseFilePlayback();
     stopDucking();
+    if (ttsPlayer) { ttsPlayer.ctx.close().catch(() => {}); ttsPlayer = null; }
     if (wakeLock) wakeLock.release().catch(() => {});
     wakeLock = null;
     clearTimeout(interimTimer);

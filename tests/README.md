@@ -108,3 +108,16 @@ superposition, que les silences en attente sont retirés, que la voix accélère
 connexion irrégulière (morceaux arrivant jusqu'à 180 ms en retard) la voix reste continue, sans trous, et que
 sa vitesse ne change pas en permanence ; et que la synthèse vocale des autres moteurs lit toutes les phrases
 (aucune abandonnée), un peu plus vite si elles s'accumulent. **8/8 réussis.**
+
+## Voix de secours pour l'arabe et les autres langues (`voix-arabe-e2e.js`)
+
+```bash
+node voix-arabe-e2e.js
+```
+
+Certaines langues (l'arabe, par exemple) peuvent arriver en texte sans voix, ou le téléphone n'a pas de voix
+pour la langue. Vérifie qu'avec Gemini Live sans voix, la voix de secours (Gemini TTS, même clé) lit les
+phrases — y compris celles déjà affichées — après 4 s d'attente, puis aussitôt ; qu'il n'y a pas de voix de
+secours quand Gemini envoie sa voix, même un peu en retard ; et qu'avec les autres moteurs, sur un téléphone
+sans voix arabe, la voix de Google prend le relais (ou un message explique comment installer la voix).
+(Gemini Live et Gemini TTS sont simulés.) **9/9 réussis.**

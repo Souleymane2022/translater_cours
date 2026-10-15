@@ -28,6 +28,8 @@ Pas de serveur ni d'inscription : tout tourne dans le navigateur.
   (fichier audio/vidéo, ou onglet partagé sur ordinateur).
 - **Pas de répétitions** quand la vidéo est en pause : le silence n'est plus envoyé, et les échos d'une
   traduction déjà dite sont écartés (texte et voix).
+- **Voix de secours** : si une langue arrive sans voix (l'arabe, par exemple) ou si le téléphone n'a pas de
+  voix pour cette langue, la traduction est lue par la synthèse vocale de Google (Gemini TTS, même clé).
 - **Lecture à voix haute en français** (synthèse vocale) — utilisez des écouteurs.
 - **Sous-titres flottants** : une petite fenêtre qui reste au-dessus de Zoom/Teams (Chrome/Edge sur ordinateur).
 - **Plein écran**, taille du texte réglable, affichage optionnel du texte anglais original.
